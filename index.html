@@ -264,6 +264,7 @@ const state = {
   formRangeDraftEnd: "",
   formStartHour: 9,
   formEndHour: 22,
+  formRules: "",
   creating: false,
   createError: "",
 };
@@ -333,6 +334,9 @@ function renderCreate(){
         <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">活動名稱</label>
         <input class="input" id="f-title" placeholder="例如：北海道旅行、部門會議" value="${esc(state.formTitle)}" style="margin-bottom:16px;" maxlength="30" />
 
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">房間規則／備註（選填，100字內）</label>
+        <textarea class="input" id="f-rules" rows="2" maxlength="100" placeholder="例如：請大家在週五前填完，晚上八點後不列入考慮" style="margin-bottom:16px;">${esc(state.formRules)}</textarea>
+
         <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">模式</label>
         <div class="row" style="margin-bottom:${state.formMode==='date'?'12':'6'}px;">
           <button class="btn ${state.formMode==='date'?'btn-primary':'btn-outline'}" style="flex:1;" id="mode-date">只挑日期</button>
@@ -383,6 +387,7 @@ function renderCreate(){
   `;
   document.getElementById("back-home").onclick = () => { state.view="home"; render(); };
   document.getElementById("f-title").oninput = (e) => { state.formTitle=e.target.value; document.getElementById("create-btn").disabled = !state.formTitle.trim()||state.creating; };
+  document.getElementById("f-rules").oninput = (e) => { state.formRules = e.target.value; };
   document.getElementById("mode-date").onclick = () => { state.formMode="date"; render(); };
   document.getElementById("mode-datetime").onclick = () => { state.formMode="date_time"; render(); };
   const startSel = document.getElementById("f-start-hour"); if (startSel) startSel.onchange = (e) => { state.formStartHour = Number(e.target.value); };
@@ -417,10 +422,13 @@ async function handleCreateRoom(){
   const meta = {
     title: state.formTitle.trim(),
     mode: state.formMode,
+    rules: state.formRules.trim().slice(0,100),
     allowedRanges: state.formRestrictDates ? state.formAllowedRanges : [],
     createdAt: Date.now(),
     hostUid: myUid,
     locked: false,
+    finalizedDate: null,
+    finalizedSlot: null,
   };
   if (state.formMode === "date_time") {
     meta.startHour = state.formStartHour;
@@ -484,6 +492,88 @@ function buildShareText(code, titleOverride){
   return `快來敲時間！${title ? `《${title}》` : ""}\n房號：${code}\n${url.toString()}`;
 }
 
+function buildResultsText(){
+  const meta = state.room.meta;
+  const participants = Object.entries(state.room.participants || {}).map(([uid,p])=>({uid,...p}));
+  const total = participants.length;
+
+  function hasAnySlot(v){ return !!(v && typeof v === "object" && Object.values(v).some(Boolean)); }
+  function slotHours(){
+    if (meta.startHour === undefined || meta.endHour === undefined) return [];
+    return Array.from({ length: Math.max(1, meta.endHour - meta.startHour) }, (_, i) => meta.startHour + i);
+  }
+  function bestSlotFor(d){
+    let best = null;
+    slotHours().forEach(h => {
+      ["00","30"].forEach(mm => {
+        const slotKey = `${h}:${mm}`;
+        const c = participants.filter(p => p.picks && p.picks[d] && p.picks[d][slotKey]).length;
+        if (c>0 && (!best || c>best.count)) best = { label: `${String(h).padStart(2,"0")}:${mm}`, count: c };
+      });
+    });
+    return best;
+  }
+
+  const countMap = {};
+  participants.forEach(p => {
+    Object.entries(p.picks||{}).forEach(([d,v])=>{
+      if (meta.mode === "date_time") { if (hasAnySlot(v)) countMap[d]=(countMap[d]||0)+1; }
+      else if (v) countMap[d]=(countMap[d]||0)+1;
+    });
+  });
+  const datesSorted = Object.keys(countMap).sort((a,b)=>countMap[b]-countMap[a]);
+
+  const lines = [];
+  lines.push(`📊 ${meta.title}${meta.mode==="date_time" ? " ・時段統計" : " ・日期統計"}`);
+
+  if (meta.finalizedDate) {
+    const { md, wd } = fmtDate(meta.finalizedDate);
+    const namesFinal = participants.filter(p => {
+      const v = p.picks && p.picks[meta.finalizedDate];
+      if (meta.mode === "date_time" && meta.finalizedSlot) return v && v[meta.finalizedSlot];
+      return meta.mode === "date_time" ? hasAnySlot(v) : !!v;
+    }).map(p=>p.name);
+    lines.push("");
+    lines.push(`🎉 已定案：${md}（週${wd}）${meta.finalizedSlot ? " " + meta.finalizedSlot : ""}`);
+    lines.push(`可以的人：${namesFinal.length ? namesFinal.join("、") : "（無）"}`);
+  }
+
+  lines.push("");
+  if (datesSorted.length === 0) {
+    lines.push("目前還沒有人填寫。");
+  } else {
+    const medals = ["🥇","🥈","🥉"];
+    datesSorted.forEach((d,i) => {
+      const { md, wd } = fmtDate(d);
+      const medal = medals[i] || "•";
+      const names = participants.filter(p => {
+        const v = p.picks && p.picks[d];
+        return meta.mode === "date_time" ? hasAnySlot(v) : !!v;
+      }).map(p=>p.name);
+      let line = `${medal} ${md}（週${wd}）・${countMap[d]}人`;
+      if (meta.mode === "date_time") {
+        const best = bestSlotFor(d);
+        if (best) line += `（最佳時段 ${best.label}，${best.count}人）`;
+      }
+      lines.push(line);
+      lines.push(`　可以：${names.join("、")}`);
+    });
+    lines.push("");
+    lines.push(`共 ${total} 人已填寫`);
+  }
+
+  return lines.join("\n");
+}
+
+async function copyResultsText(){
+  try {
+    await navigator.clipboard.writeText(buildResultsText());
+    showToast("已複製結果文字");
+  } catch(e) {
+    showToast("複製失敗，請手動選取文字");
+  }
+}
+
 function myParticipant(){
   if (!state.room || !state.room.participants) return null;
   return state.room.participants[myUid] || null;
@@ -535,6 +625,17 @@ async function saveNote(){
 }
 async function toggleLock(){
   await ref(`rooms/${state.roomCode}/meta/locked`).set(!state.room.meta.locked);
+}
+async function finalizeDate(dateStr, slotKey){
+  await ref(`rooms/${state.roomCode}/meta`).update({
+    finalizedDate: dateStr,
+    finalizedSlot: slotKey || null,
+  });
+  showToast("已將這天設為最終結果");
+}
+async function unfinalize(){
+  await ref(`rooms/${state.roomCode}/meta`).update({ finalizedDate: null, finalizedSlot: null });
+  showToast("已取消定案");
 }
 function requestDeleteRoom(){
   state.confirmDeleteOpen = true;
@@ -664,12 +765,14 @@ function renderRoom(){
         ${ranked.map((d,i)=>{
           const {md,wd}=fmtDate(d); const medal=["🥇","🥈","🥉"][i];
           const bestSlot = bestSlotForDate(d);
+          const isFinalDate = meta.finalizedDate === d;
           return `
-          <div class="rank-chip" data-jump="${d}">
+          <div class="rank-chip" data-jump="${d}" style="${isFinalDate?'box-shadow:inset 0 0 0 2px #E3A857;':''}">
             <span class="rank-medal">${medal}</span>
             <span>${md} 週${wd}</span>
             <span class="n">${countMap[d]} 人</span>
             ${bestSlot ? `<span style="font-size:10.5px;color:var(--teal);font-weight:600;">最佳 ${bestSlot.label}（${bestSlot.count}人）</span>` : ``}
+            ${isHost && meta.mode === "date" ? `<button class="link-btn finalize-date-btn" data-final-date="${d}" style="font-size:10.5px;color:${isFinalDate?'var(--danger)':'var(--teal)'};margin-top:2px;">${isFinalDate?'取消定案':'設為定案'}</button>` : ``}
           </div>`;
         }).join("")}
       </div>
@@ -716,8 +819,10 @@ function renderRoom(){
               const segParticipants = participants.filter(p => p.picks && p.picks[d] && p.picks[d][slotKey]);
               const active = me.picks && me.picks[d] && me.picks[d][slotKey];
               const segBg = segParticipants.length>0 ? heatColor(segParticipants.length,total) : "#fff";
+              const isFinal = meta.finalizedDate === d && meta.finalizedSlot === slotKey;
               return `
-                <div class="half-slot ${isTop?'top':''} ${active?'active':''}" data-seg-date="${d}" data-seg="${slotKey}" style="${active?`background:${me.color};`:`background:${segBg};`}">
+                <div class="half-slot ${isTop?'top':''} ${active?'active':''}" data-seg-date="${d}" data-seg="${slotKey}" style="${active?`background:${me.color};`:`background:${segBg};`}${isFinal?'box-shadow:inset 0 0 0 2px #E3A857;':''}">
+                  ${isHost ? `<button class="link-btn finalize-slot-btn" data-final-date="${d}" data-final-slot="${slotKey}" style="font-size:10px;color:${active?'#fff':'var(--teal)'};margin-right:4px;" title="設為最終時段">${isFinal?'🏁已定案':'設為定案'}</button>` : ``}
                   <span class="half-dots">${segParticipants.map(p=>`<span class="dot" style="background:${p.color}"></span>`).join("")}</span>
                 </div>
               `;
@@ -759,6 +864,27 @@ function renderRoom(){
           <button class="btn btn-danger btn-sm" id="delete-btn">刪除房間</button>
         </div>` : ``}
       </div>
+
+      ${meta.rules ? `
+      <div class="glass" style="padding:12px 16px;margin-bottom:12px;background:rgba(227,168,87,0.12);">
+        <div style="font-size:12px;color:#7A5A1E;">📌 ${esc(meta.rules)}</div>
+      </div>` : ``}
+
+      ${meta.finalizedDate ? (() => {
+        const { md, wd } = fmtDate(meta.finalizedDate);
+        return `
+        <div class="glass" style="padding:14px 16px;margin-bottom:12px;background:rgba(14,124,123,0.1);border-color:var(--teal);">
+          <div style="font-size:14px;font-weight:700;color:var(--ink);">🎉 已定案：${md}（週${wd}）${meta.finalizedSlot ? " " + meta.finalizedSlot : ""}</div>
+          <div class="row" style="margin-top:8px;">
+            <button class="btn btn-teal btn-sm" id="copy-results-btn">複製結果文字</button>
+            ${isHost ? `<button class="btn btn-outline btn-sm" id="unfinalize-btn">取消定案</button>` : ``}
+          </div>
+        </div>`;
+      })() : `
+      <div class="glass" style="padding:12px 16px;margin-bottom:12px;">
+        <button class="btn btn-outline btn-sm btn-full" id="copy-results-btn">複製目前統計結果文字</button>
+      </div>
+      `}
 
       <div class="glass" style="padding:16px 14px;margin-bottom:14px;">
         <div style="font-size:12.5px;font-weight:600;color:var(--muted2);margin-bottom:6px;">參與者</div>
@@ -826,6 +952,14 @@ function renderRoom(){
   const delBtn = document.getElementById("delete-btn"); if (delBtn) delBtn.onclick = requestDeleteRoom;
   const cancelDeleteBtn = document.getElementById("cancel-delete-btn"); if (cancelDeleteBtn) cancelDeleteBtn.onclick = cancelDeleteRoom;
   const confirmDeleteBtn = document.getElementById("confirm-delete-btn"); if (confirmDeleteBtn) confirmDeleteBtn.onclick = confirmDeleteRoom;
+  const copyResultsBtn = document.getElementById("copy-results-btn"); if (copyResultsBtn) copyResultsBtn.onclick = copyResultsText;
+  const unfinalizeBtn = document.getElementById("unfinalize-btn"); if (unfinalizeBtn) unfinalizeBtn.onclick = unfinalize;
+  document.querySelectorAll(".finalize-date-btn").forEach(btn => {
+    btn.onclick = (ev) => { ev.stopPropagation(); const d = btn.dataset.finalDate; if (state.room.meta.finalizedDate === d) unfinalize(); else finalizeDate(d); };
+  });
+  document.querySelectorAll(".finalize-slot-btn").forEach(btn => {
+    btn.onclick = (ev) => { ev.stopPropagation(); finalizeDate(btn.dataset.finalDate, btn.dataset.finalSlot); };
+  });
 
   document.querySelectorAll(".note-toggle").forEach(btn => {
     btn.onclick = () => { state.expandedNoteUid = state.expandedNoteUid===btn.dataset.uid ? null : btn.dataset.uid; render(); };
