@@ -83,9 +83,15 @@
   .cal-cell.today .cal-daynum{color:var(--teal);}
   .cal-cell.mine{box-shadow:inset 0 0 0 2px var(--mine-color, var(--teal));}
   .dotwrap{display:flex;flex-wrap:wrap;gap:2px;margin-top:3px;}
-  .segrow{display:flex;gap:3px;margin-top:auto;}
-  .seg{flex:1;border-radius:6px;font-size:9px;text-align:center;padding:2px 0;border:1px solid var(--line);color:var(--muted2);background:#F7F8F6;}
-  .seg.active{color:#fff;border-color:transparent;}
+  .daythirds{display:flex;flex-direction:column;gap:6px;}
+  .day-third{
+    border-radius:12px;border:1px solid var(--line);padding:12px 14px;cursor:pointer;
+    display:flex;align-items:center;justify-content:space-between;transition:background .15s ease;
+  }
+  .day-third.active{border-color:transparent;}
+  .day-third-label{font-size:14px;font-weight:600;color:var(--ink);}
+  .day-third.active .day-third-label{color:#fff;}
+  .day-third-dots{display:flex;gap:3px;flex-wrap:wrap;justify-content:flex-end;}
 
   .rank-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;}
   .rank-chip{
@@ -133,15 +139,29 @@ const firebaseConfig = {
 const IS_PLACEHOLDER = firebaseConfig.apiKey === "YOUR_API_KEY";
 
 let db = null, auth = null, myUid = null;
+let FIREBASE_INIT_ERROR = null;
 const authReady = new Promise((resolve) => {
   if (IS_PLACEHOLDER) { myUid = "local-preview-uid"; resolve(); return; }
-  firebase.initializeApp(firebaseConfig);
-  db = firebase.database();
-  auth = firebase.auth();
-  auth.onAuthStateChanged((user) => {
-    if (user) { myUid = user.uid; resolve(); }
-    else { auth.signInAnonymously().catch(() => { myUid = "anon-fallback"; resolve(); }); }
-  });
+  try {
+    if (typeof firebase === "undefined") {
+      throw new Error("Firebase 資源沒有載入成功（常見原因：瀏覽器的廣告攔截／隱私保護擋掉了 Google 的 gstatic.com 資源）");
+    }
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+    auth = firebase.auth();
+    auth.onAuthStateChanged((user) => {
+      if (user) { myUid = user.uid; resolve(); }
+      else {
+        auth.signInAnonymously().catch((e) => {
+          FIREBASE_INIT_ERROR = "匿名登入失敗：" + (e && e.message ? e.message : e);
+          db = null; myUid = "anon-fallback"; resolve();
+        });
+      }
+    });
+  } catch (e) {
+    FIREBASE_INIT_ERROR = e && e.message ? e.message : String(e);
+    db = null; myUid = "anon-fallback"; resolve();
+  }
 });
 
 /* local fallback so the page still renders before Firebase is configured.
@@ -225,11 +245,13 @@ const state = {
   noteDraft: "",
   calYear: today.getFullYear(),
   calMonth: today.getMonth(),
-  rangeStart: null,          // reserved for future check-in/out mode
+  rangeStart: null,          // pending "check-in" date when dateSelectionMode is "range"
+  selectedDetailDate: null,  // which date's time-of-day picker is open (date_time mode)
   bestOnly: false,
   expandedNoteUid: null,
   formTitle: "",
   formMode: "date",          // date | date_time
+  formDateSelectionMode: "arbitrary", // arbitrary | range (only relevant when formMode === "date")
   creating: false,
   createError: "",
 };
@@ -249,6 +271,7 @@ function renderHome(){
     <div class="center-wrap">
       <div style="width:100%;max-width:420px;">
         ${IS_PLACEHOLDER ? `<div class="banner"><b>尚未連接資料庫</b><br/>目前是本機預覽模式，重新整理或換裝置不會同步。請把最上方 <code>firebaseConfig</code> 換成你自己 Firebase 專案的設定。</div>` : ``}
+        ${!IS_PLACEHOLDER && FIREBASE_INIT_ERROR ? `<div class="banner" style="border-color:var(--danger);color:#7A2E2E;background:#FDECEC;"><b>連不到資料庫</b><br/>${esc(FIREBASE_INIT_ERROR)}<br/>可以試試：關掉瀏覽器的廣告攔截／隱私保護（例如 Brave 的 Shields、uBlock）針對這個網址關閉，或換一個瀏覽器再試一次。目前暫時以本機模式運作，不會跟其他人同步。</div>` : ``}
         <div style="text-align:center;margin-bottom:32px;">
           <div class="eyebrow">共同排時間</div>
           <h1 class="display" style="font-size:36px;font-weight:700;margin:6px 0 4px;">敲時間</h1>
@@ -299,10 +322,20 @@ function renderCreate(){
         <input class="input" id="f-title" placeholder="例如：北海道旅行、部門會議" value="${esc(state.formTitle)}" style="margin-bottom:16px;" maxlength="30" />
 
         <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">模式</label>
-        <div class="row" style="margin-bottom:6px;">
+        <div class="row" style="margin-bottom:${state.formMode==='date'?'12':'6'}px;">
           <button class="btn ${state.formMode==='date'?'btn-primary':'btn-outline'}" style="flex:1;" id="mode-date">只挑日期</button>
           <button class="btn ${state.formMode==='date_time'?'btn-primary':'btn-outline'}" style="flex:1;" id="mode-datetime">日期＋時段</button>
         </div>
+
+        ${state.formMode==='date' ? `
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">日期選擇方式</label>
+        <div class="row" style="margin-bottom:6px;">
+          <button class="btn ${state.formDateSelectionMode==='arbitrary'?'btn-primary':'btn-outline'}" style="flex:1;" id="dsm-arbitrary">任意日期</button>
+          <button class="btn ${state.formDateSelectionMode==='range'?'btn-primary':'btn-outline'}" style="flex:1;" id="dsm-range">起訖日期（住宿）</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">${state.formDateSelectionMode==='range' ? "適合旅遊排程：先點入住日、再點退房日，中間會自動整段選取。" : "每個日子各自獨立勾選，適合聚餐、開會這類單日活動。"}</div>
+        ` : ``}
+
         <div style="font-size:12px;color:var(--muted);">建立後大家可以直接從今天開始，往後任何日子都能挑，不用先指定候選日期。</div>
       </div>
       <button class="btn btn-primary btn-full" id="create-btn" ${(!state.formTitle.trim()||state.creating)?"disabled":""}>${state.creating?"建立中…":"建立房間"}</button>
@@ -313,6 +346,8 @@ function renderCreate(){
   document.getElementById("f-title").oninput = (e) => { state.formTitle=e.target.value; document.getElementById("create-btn").disabled = !state.formTitle.trim()||state.creating; };
   document.getElementById("mode-date").onclick = () => { state.formMode="date"; render(); };
   document.getElementById("mode-datetime").onclick = () => { state.formMode="date_time"; render(); };
+  const dsmA = document.getElementById("dsm-arbitrary"); if (dsmA) dsmA.onclick = () => { state.formDateSelectionMode="arbitrary"; render(); };
+  const dsmR = document.getElementById("dsm-range"); if (dsmR) dsmR.onclick = () => { state.formDateSelectionMode="range"; render(); };
   document.getElementById("create-btn").onclick = handleCreateRoom;
 }
 
@@ -325,6 +360,7 @@ async function handleCreateRoom(){
   const meta = {
     title: state.formTitle.trim(),
     mode: state.formMode,
+    dateSelectionMode: state.formMode === "date" ? state.formDateSelectionMode : "arbitrary",
     createdAt: Date.now(),
     hostUid: myUid,
     locked: false,
@@ -349,13 +385,26 @@ function enterRoom(code, justCreated){
   state.calMonth = today.getMonth();
   state.bestOnly = false;
   state.expandedNoteUid = null;
+  state.rangeStart = null;
+  state.selectedDetailDate = null;
   state.view = "room";
   render();
 
   roomRef = ref(`rooms/${code}`);
   roomRef.on("value", (snap) => {
-    state.room = snap.val();
-    if (!state.room) { showToast("這個房間已經被刪除"); state.view="home"; render(); return; }
+    const val = snap.val();
+    if (!val) { showToast("這個房間已經被刪除"); state.view="home"; render(); return; }
+    // best-effort 30-day expiry: since there's no backend to run scheduled
+    // cleanup, whoever opens the room after it expires triggers the deletion.
+    if (val.meta && daysRemaining(val.meta.createdAt) <= 0) {
+      roomRef.off("value");
+      ref(`rooms/${code}`).remove().finally(() => {
+        showToast("此房間已超過 30 天保存期限，已自動清除");
+        state.view = "home"; render();
+      });
+      return;
+    }
+    state.room = val;
     render();
   });
 
@@ -385,8 +434,42 @@ async function submitName(){
   });
 }
 
+function dateRangeBetween(a, b) {
+  const [start, end] = a <= b ? [a, b] : [b, a];
+  const out = [];
+  let cur = new Date(start + "T00:00:00");
+  const endDt = new Date(end + "T00:00:00");
+  while (cur <= endDt) {
+    out.push(toISO(cur.getFullYear(), cur.getMonth(), cur.getDate()));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
 async function toggleDatePick(dateStr){
   const me = myParticipant(); if (!me || state.room.meta.locked) return;
+
+  if (state.room.meta.dateSelectionMode === "range") {
+    if (state.rangeStart === null) {
+      state.rangeStart = dateStr;
+      render();
+      return;
+    }
+    const start = state.rangeStart;
+    state.rangeStart = null;
+    const range = dateRangeBetween(start, dateStr);
+    const picks = { ...(me.picks||{}) };
+    const alreadyAllSelected = range.every((d) => picks[d]);
+    if (alreadyAllSelected) {
+      range.forEach((d) => delete picks[d]);
+    } else {
+      range.forEach((d) => { picks[d] = true; });
+    }
+    await ref(`rooms/${state.roomCode}/participants/${myUid}/picks`).set(picks);
+    render();
+    return;
+  }
+
   const picks = { ...(me.picks||{}) };
   if (picks[dateStr]) delete picks[dateStr]; else picks[dateStr] = true;
   await ref(`rooms/${state.roomCode}/participants/${myUid}/picks`).set(picks);
@@ -418,6 +501,10 @@ async function deleteRoom(){
   state.view = "home"; render();
 }
 function jumpToday(){ state.calYear=today.getFullYear(); state.calMonth=today.getMonth(); render(); }
+function openDateDetail(dateStr){
+  state.selectedDetailDate = state.selectedDetailDate === dateStr ? null : dateStr;
+  render();
+}
 function shiftMonth(delta){
   let m=state.calMonth+delta, y=state.calYear;
   if (m<0){m=11;y-=1;} if (m>11){m=0;y+=1;}
@@ -429,10 +516,7 @@ function jumpToDate(dateStr){
 }
 function copyShareUrl(){
   const url = new URL(window.location.href); url.searchParams.set("code", state.roomCode);
-  navigator.clipboard.writeText(url.toString()).then(()=>showToast("已複製分享連結")).catch(()=>{});
-}
-function copyCode(){
-  navigator.clipboard.writeText(state.roomCode).then(()=>showToast("已複製房號")).catch(()=>{});
+  navigator.clipboard.writeText(url.toString()).then(()=>showToast("已複製分享連結（含房號）")).catch(()=>{});
 }
 
 function heatColor(count, total){
@@ -460,7 +544,6 @@ function renderRoom(){
   const isHost = myUid === meta.hostUid;
   const total = participants.length;
   const remaining = daysRemaining(meta.createdAt);
-  const createdStr = new Date(meta.createdAt).toLocaleDateString("zh-TW");
 
   // day counts
   const countMap = {};
@@ -529,42 +612,64 @@ function renderRoom(){
       return meta.mode==="date_time" ? (v && typeof v==="object" && (v.morning||v.afternoon||v.evening)) : !!v;
     }).map(p => `<span class="dot" style="background:${p.color}"></span>`).join("");
 
-    let segHtml = "";
-    if (meta.mode === "date_time") {
-      const segDefs = [["morning","上午"],["afternoon","下午"],["evening","晚上"]];
-      segHtml = `<div class="segrow">` + segDefs.map(([key,label]) => {
-        const segCount = participants.filter(p => p.picks && p.picks[dateStr] && p.picks[dateStr][key]).length;
-        const active = me && me.picks && me.picks[dateStr] && me.picks[dateStr][key];
-        const segBg = segCount>0 ? heatColor(segCount,total) : "";
-        return `<div class="seg ${active?'active':''}" data-seg-date="${dateStr}" data-seg="${key}" style="${active?`background:${me.color};`:segBg?`background:${segBg};color:#14213D;`:''}">${label}</div>`;
-      }).join("") + `</div>`;
-    }
+    const isRangeStart = state.rangeStart === dateStr;
+    const isOpenDetail = meta.mode === "date_time" && state.selectedDetailDate === dateStr;
 
     calCellsHtml += `
-      <div class="cal-cell ${isPast?'disabled':''} ${isTodayCell?'today':''} ${faded?'faded':''}" data-date="${meta.mode==='date' && !isPast ? dateStr : ''}" style="background:${meta.mode==='date' ? bg : '#fff'};">
-        <div class="cal-daynum">${day}</div>
-        ${meta.mode==='date' ? `<div class="dotwrap">${dotsHtml}</div>` : segHtml}
+      <div class="cal-cell ${isPast?'disabled':''} ${isTodayCell?'today':''} ${faded?'faded':''}" data-date="${!isPast ? dateStr : ''}" style="background:${bg};${isRangeStart||isOpenDetail?'box-shadow:inset 0 0 0 2px #E3A857;':''}">
+        <div class="cal-daynum">${day}${isRangeStart?' 🏁':''}</div>
+        <div class="dotwrap">${dotsHtml}</div>
       </div>
     `;
   });
 
+  let dayDetailHtml = "";
+  if (meta.mode === "date_time" && state.selectedDetailDate && me) {
+    const d = state.selectedDetailDate;
+    const { md, wd } = fmtDate(d);
+    const segDefs = [["morning","上午"],["afternoon","下午"],["evening","晚上"]];
+    dayDetailHtml = `
+      <div class="glass fade-in" style="padding:14px;margin-top:12px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;">${md} 週${wd} · 選擇時段</div>
+        <div class="daythirds">
+          ${segDefs.map(([key,label]) => {
+            const segParticipants = participants.filter(p => p.picks && p.picks[d] && p.picks[d][key]);
+            const segCount = segParticipants.length;
+            const active = me.picks && me.picks[d] && me.picks[d][key];
+            const segBg = segCount>0 ? heatColor(segCount,total) : "#fff";
+            return `
+              <div class="day-third ${active?'active':''}" data-seg-date="${d}" data-seg="${key}" style="${active?`background:${me.color};`:`background:${segBg};`}">
+                <span class="day-third-label">${label}</span>
+                <span class="day-third-dots">${segParticipants.map(p=>`<span class="dot" style="background:${p.color}"></span>`).join("")}</span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    `;
+  }
+
   app.innerHTML = `
     <div class="wrap">
-      <div class="glass" style="padding:16px 18px;margin-bottom:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
-          <div>
-            <button class="link-btn" id="leave-room" style="margin-bottom:6px;">← 離開房間</button>
-            <h1 class="display" style="font-size:21px;font-weight:700;margin:0;">${esc(meta.title)}</h1>
-            <div style="font-size:12px;color:var(--muted);margin-top:4px;">建立於 ${createdStr} · 剩餘 ${remaining} 天 · ${total} 人已加入 ${meta.locked?'· <b style="color:var(--danger);">已鎖定</b>':''}</div>
+      <div class="glass" style="padding:14px 16px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div style="min-width:0;">
+            <button class="link-btn" id="leave-room" style="margin-bottom:4px;">← 離開房間</button>
+            <h1 class="display" style="font-size:19px;font-weight:700;margin:0;">${esc(meta.title)}</h1>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:3px;">剩餘 ${remaining} 天 · ${total} 人 ${meta.locked?'· <b style="color:var(--danger);">已鎖定</b>':''}</div>
           </div>
-          <div class="ticket"><div class="ticket-label mono">ROOM</div><div class="ticket-code mono">${state.roomCode}</div></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;">
+            <div class="ticket" id="share-ticket" style="cursor:pointer;" title="點擊複製分享連結">
+              <div class="ticket-label mono">ROOM</div><div class="ticket-code mono">${state.roomCode}</div>
+            </div>
+            <div style="font-size:10.5px;color:var(--muted);">點擊複製分享連結</div>
+          </div>
         </div>
-        <div class="row" style="margin-top:12px;flex-wrap:wrap;">
-          <button class="btn btn-outline btn-sm" id="share-btn">分享連結</button>
-          <button class="btn btn-outline btn-sm" id="copy-code-btn">複製房號</button>
-          ${isHost ? `<button class="btn btn-outline btn-sm" id="lock-btn">${meta.locked?"解除鎖定":"鎖定投票"}</button>` : ``}
-          ${isHost ? `<button class="btn btn-danger btn-sm" id="delete-btn">刪除房間</button>` : ``}
-        </div>
+        ${isHost ? `
+        <div class="row" style="margin-top:10px;">
+          <button class="btn btn-outline btn-sm" id="lock-btn">${meta.locked?"解除鎖定":"鎖定投票"}</button>
+          <button class="btn btn-danger btn-sm" id="delete-btn">刪除房間</button>
+        </div>` : ``}
       </div>
 
       <div class="glass" style="padding:16px 14px;margin-bottom:14px;">
@@ -601,6 +706,7 @@ function renderRoom(){
         </div>
         <div class="cal-grid-wd">${WEEKDAY.map(w=>`<div class="cal-wd">${w}</div>`).join("")}</div>
         <div class="cal-grid">${calCellsHtml}</div>
+        ${dayDetailHtml}
 
         <div style="margin-top:14px;">
           <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">我的備註（最多 50 字，選填）</label>
@@ -615,8 +721,7 @@ function renderRoom(){
   `;
 
   document.getElementById("leave-room").onclick = () => { if(roomRef) roomRef.off("value"); state.view="home"; render(); };
-  document.getElementById("share-btn").onclick = copyShareUrl;
-  document.getElementById("copy-code-btn").onclick = copyCode;
+  document.getElementById("share-ticket").onclick = copyShareUrl;
   const lockBtn = document.getElementById("lock-btn"); if (lockBtn) lockBtn.onclick = toggleLock;
   const delBtn = document.getElementById("delete-btn"); if (delBtn) delBtn.onclick = deleteRoom;
 
@@ -647,6 +752,10 @@ function renderRoom(){
       cell.onclick = () => toggleDatePick(d);
     });
   } else {
+    document.querySelectorAll(".cal-cell[data-date]").forEach(cell => {
+      const d = cell.dataset.date; if (!d) return;
+      cell.onclick = () => openDateDetail(d);
+    });
     document.querySelectorAll("[data-seg-date]").forEach(el => {
       el.onclick = (ev) => { ev.stopPropagation(); toggleSegment(el.dataset.segDate, el.dataset.seg); };
     });
@@ -658,15 +767,28 @@ function renderRoom(){
 }
 
 /* ============================================================ boot */
+window.addEventListener("error", (e) => {
+  const el = document.getElementById("app");
+  if (el && !el.innerHTML.trim()) {
+    el.innerHTML = `<div class="center-wrap"><div class="glass" style="padding:20px;max-width:420px;"><b style="color:var(--danger);">頁面發生錯誤</b><div style="font-size:13px;margin-top:8px;color:var(--muted2);">${esc(e.message||"未知錯誤")}</div></div></div>`;
+  }
+});
+
+render(); // show the home screen immediately; don't block on Firebase
+
 (async function boot(){
-  await authReady;
-  const params = new URLSearchParams(window.location.search);
-  const codeParam = params.get("code");
-  render();
-  if (codeParam) {
-    const code = codeParam.trim().toUpperCase();
-    const snap = await ref(`rooms/${code}/meta`).once("value");
-    if (snap.val()) enterRoom(code);
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const codeParam = params.get("code");
+    await authReady;
+    if (state.view === "home") render(); // pick up FIREBASE_INIT_ERROR banner if init failed
+    if (codeParam) {
+      const code = codeParam.trim().toUpperCase();
+      const snap = await ref(`rooms/${code}/meta`).once("value");
+      if (snap.val()) enterRoom(code);
+    }
+  } catch (e) {
+    console.error("boot() failed:", e);
   }
 })();
 </script>
