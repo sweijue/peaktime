@@ -303,6 +303,9 @@ function renderHome(){
           <div style="font-size:12px;color:var(--muted);margin-top:8px;">也可以直接透過分享網址加入</div>
           ${state.joinError ? `<div style="color:var(--danger);font-size:13px;margin-top:8px;">${esc(state.joinError)}</div>` : ``}
         </div>
+        <div style="font-size:13.5px;font-weight:600;color:var(--danger);text-align:center;margin-top:16px;line-height:1.7;padding:10px 12px;border-radius:12px;background:rgba(194,73,73,0.08);">
+          ⚠️ 這是簡易排程小工具，資料沒有嚴格的存取保護，任何知道房號的人都能看到房間內容。請不要填寫真實姓名，也不要留下電話、地址、身分證字號等任何個人隱私資訊，用暱稱就好。
+        </div>
       </div>
     </div>
   `;
@@ -893,12 +896,12 @@ function renderRoom(){
 
       ${!me ? `
       <div class="glass fade-in" style="padding:18px;margin-bottom:14px;">
-        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:8px;">你的名字</label>
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:8px;">你的暱稱（請勿使用真實姓名）</label>
         <div class="row">
-          <input class="input" id="name-input" placeholder="輸入名字加入房間" maxlength="12" />
+          <input class="input" id="name-input" placeholder="輸入暱稱加入房間（不要用真實姓名）" maxlength="12" />
           <button class="btn btn-teal" id="submit-name" style="white-space:nowrap;">加入</button>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:8px;">名字送出後就不能修改，系統會自動配一個專屬顏色。</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px;">暱稱送出後就不能修改，系統會自動配一個專屬顏色。</div>
       </div>` : `
 
       <div class="glass" style="padding:16px 14px;margin-bottom:14px;">
@@ -928,6 +931,7 @@ function renderRoom(){
             <textarea class="input" id="note-input" rows="1" maxlength="50" placeholder="例如：晚上七點後才有空">${esc(me.note||"")}</textarea>
             <button class="btn btn-outline btn-sm" id="save-note" style="white-space:nowrap;">儲存</button>
           </div>
+          <div style="font-size:12px;font-weight:600;color:var(--danger);margin-top:6px;">⚠️ 備註所有房間成員都看得到，請勿填寫電話、地址等任何個人隱私資訊。</div>
         </div>
       </div>
       `}
