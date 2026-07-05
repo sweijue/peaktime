@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>敲時間</title>
+<meta name="theme-color" content="#14213D" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+<style>
+  :root{
+    --ink:#14213D; --paper:#F2F3F1; --card:rgba(255,255,255,0.86); --line:#E6E4DC;
+    --muted:#9A9585; --muted2:#5B6472; --teal:#0E7C7B; --gold:#E3A857; --danger:#C24949;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:linear-gradient(180deg,#F7F8F6 0%,#EEF0EC 100%);
+    color:var(--ink); font-family:'Noto Sans TC',sans-serif; -webkit-font-smoothing:antialiased;
+    min-height:100vh; padding-bottom:env(safe-area-inset-bottom);
+  }
+  .display{font-family:'Noto Serif TC',serif;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .wrap{max-width:640px;margin:0 auto;padding:20px 16px 90px;}
+  .center-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px 16px;}
+  .glass{
+    background:var(--card); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,0.6); border-radius:22px; box-shadow:0 4px 24px rgba(20,33,61,0.06);
+  }
+  .btn{border:none;border-radius:14px;padding:13px 20px;font-weight:600;font-size:15px;cursor:pointer;font-family:inherit;transition:transform .12s ease, opacity .12s ease;}
+  .btn:active{transform:scale(0.97);}
+  .btn:disabled{opacity:.35;cursor:not-allowed;}
+  .btn-primary{background:var(--ink);color:#fff;}
+  .btn-teal{background:var(--teal);color:#fff;}
+  .btn-outline{background:rgba(255,255,255,0.7);border:1px solid var(--line);color:var(--ink);}
+  .btn-danger{background:transparent;color:var(--danger);border:1px solid rgba(194,73,73,0.4);}
+  .btn-full{width:100%;}
+  .btn-sm{padding:8px 14px;font-size:13px;border-radius:11px;}
+  .input{border:1px solid var(--line);border-radius:14px;padding:12px 14px;font-family:inherit;font-size:15px;background:#fff;color:var(--ink);width:100%;}
+  .input:focus{outline:2px solid var(--teal);outline-offset:1px;}
+  .row{display:flex;gap:8px;}
+  .link-btn{background:none;border:none;color:var(--muted2);font-size:13px;cursor:pointer;padding:0;font-family:inherit;}
+  .eyebrow{font-size:11px;letter-spacing:.28em;color:var(--gold);font-weight:600;}
+  .toast{
+    position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;
+    padding:10px 18px;border-radius:999px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2);
+    z-index:100;opacity:0;transition:opacity .25s ease, transform .25s ease;pointer-events:none;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  /* ticket */
+  .ticket{display:inline-flex;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(20,33,61,.1);}
+  .ticket-label{background:var(--ink);color:var(--gold);font-size:10px;letter-spacing:.28em;padding:9px 12px;display:flex;align-items:center;}
+  .ticket-code{background:#fff;padding:9px 16px;font-size:19px;font-weight:700;letter-spacing:.22em;color:var(--ink);}
+
+  /* legend */
+  .legend{display:flex;flex-wrap:wrap;gap:6px;}
+  .legend-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px 5px 6px;border-radius:999px;background:rgba(255,255,255,0.7);border:1px solid var(--line);font-size:12.5px;}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0;}
+
+  /* calendar */
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin:6px 0 10px;}
+  .cal-nav{width:32px;height:32px;border-radius:50%;border:none;background:rgba(20,33,61,0.06);color:var(--ink);cursor:pointer;font-size:17px;line-height:1;}
+  .cal-nav:disabled{opacity:.25;cursor:not-allowed;}
+  .cal-grid-wd{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:4px;}
+  .cal-wd{text-align:center;font-size:11px;color:var(--muted);font-weight:600;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+  .cal-cell{
+    min-height:64px; border-radius:14px; border:1px solid var(--line); background:#fff;
+    display:flex;flex-direction:column;padding:5px 5px 4px;cursor:pointer;position:relative;transition:background .15s ease, opacity .2s ease;
+  }
+  @media (min-width:480px){ .cal-cell{ min-height:88px; } }
+  .cal-cell.pad{visibility:hidden;}
+  .cal-cell.disabled{opacity:.28;cursor:not-allowed;}
+  .cal-cell.faded{opacity:.35;}
+  .cal-daynum{font-size:13px;font-weight:600;color:var(--ink);}
+  .cal-cell.today .cal-daynum{color:var(--teal);}
+  .cal-cell.mine{box-shadow:inset 0 0 0 2px var(--mine-color, var(--teal));}
+  .dotwrap{display:flex;flex-wrap:wrap;gap:2px;margin-top:3px;}
+  .segrow{display:flex;gap:3px;margin-top:auto;}
+  .seg{flex:1;border-radius:6px;font-size:9px;text-align:center;padding:2px 0;border:1px solid var(--line);color:var(--muted2);background:#F7F8F6;}
+  .seg.active{color:#fff;border-color:transparent;}
+
+  .rank-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;}
+  .rank-chip{
+    flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px;
+    padding:8px 14px;border-radius:14px;background:rgba(255,255,255,0.7);border:1px solid var(--line);cursor:pointer;font-size:12px;
+  }
+  .rank-chip .n{font-weight:700;font-size:14px;color:var(--ink);}
+  .rank-medal{font-size:11px;}
+
+  .switch{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted2);cursor:pointer;}
+  .switch .track{width:34px;height:19px;border-radius:999px;background:var(--line);position:relative;transition:background .15s ease;}
+  .switch .thumb{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:left .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.2);}
+  .switch.on .track{background:var(--teal);}
+  .switch.on .thumb{left:17px;}
+
+  .banner{background:#FFF6E6;border:1px solid var(--gold);color:#6B4E1A;border-radius:14px;padding:12px 14px;font-size:12.5px;margin-bottom:14px;line-height:1.6;}
+  .banner code{background:rgba(0,0,0,.06);padding:1px 5px;border-radius:5px;}
+  .fade-in{animation:fadeIn .2s ease;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+  .hidden{display:none !important;}
+  textarea.input{resize:none;font-family:inherit;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+/* ============================================================
+   設定：到 https://console.firebase.google.com 建立專案後：
+   1. 啟用 Authentication → Sign-in method → Anonymous
+   2. 啟用 Realtime Database（測試模式）
+   3. 資料庫規則：{ "rules": { ".read": true, ".write": true } }
+   4. 專案設定 → 新增網頁應用程式 → 複製 config 貼到下面
+============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyAts2kmBceUfqnYrJkR-XcIIl0yjUjvTF8",
+  authDomain: "peaktime-e20c6.firebaseapp.com",
+  databaseURL: "https://peaktime-e20c6-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "peaktime-e20c6",
+  storageBucket: "peaktime-e20c6.firebasestorage.app",
+  messagingSenderId: "306247775649",
+  appId: "1:306247775649:web:e46b0523da28b0194f07e0",
+};
+const IS_PLACEHOLDER = firebaseConfig.apiKey === "YOUR_API_KEY";
+
+let db = null, auth = null, myUid = null;
+const authReady = new Promise((resolve) => {
+  if (IS_PLACEHOLDER) { myUid = "local-preview-uid"; resolve(); return; }
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+  auth = firebase.auth();
+  auth.onAuthStateChanged((user) => {
+    if (user) { myUid = user.uid; resolve(); }
+    else { auth.signInAnonymously().catch(() => { myUid = "anon-fallback"; resolve(); }); }
+  });
+});
+
+/* local fallback so the page still renders before Firebase is configured.
+   Mimics Firebase's nested-path behaviour: writing to rooms/CODE/meta must be
+   visible to a listener on rooms/CODE. A flat key store (the previous version)
+   does not do this, which is why the room view got stuck on "載入中". */
+const LOCAL_DB = {};
+const LOCAL_LISTENERS = []; // {path, cb}
+function splitPath(p) { return p.split("/").filter(Boolean); }
+function localGet(path) {
+  let cur = LOCAL_DB;
+  for (const seg of splitPath(path)) { if (cur == null) return null; cur = cur[seg]; }
+  return cur === undefined ? null : cur;
+}
+function localNotify() { LOCAL_LISTENERS.forEach(({ path, cb }) => cb({ val: () => localGet(path) })); }
+function localSet(path, value) {
+  const segs = splitPath(path);
+  if (segs.length === 0) { Object.keys(LOCAL_DB).forEach(k => delete LOCAL_DB[k]); Object.assign(LOCAL_DB, value || {}); localNotify(); return; }
+  let cur = LOCAL_DB;
+  for (let i = 0; i < segs.length - 1; i++) { const s = segs[i]; if (typeof cur[s] !== "object" || cur[s] === null) cur[s] = {}; cur = cur[s]; }
+  cur[segs[segs.length - 1]] = value;
+  localNotify();
+}
+function localRemove(path) {
+  const segs = splitPath(path);
+  if (segs.length === 0) { Object.keys(LOCAL_DB).forEach(k => delete LOCAL_DB[k]); localNotify(); return; }
+  let cur = LOCAL_DB;
+  for (let i = 0; i < segs.length - 1; i++) { cur = cur ? cur[segs[i]] : null; }
+  if (cur) delete cur[segs[segs.length - 1]];
+  localNotify();
+}
+function localRef(path) {
+  return {
+    set: (v) => { localSet(path, v); return Promise.resolve(); },
+    update: (v) => { localSet(path, { ...(localGet(path) || {}), ...v }); return Promise.resolve(); },
+    remove: () => { localRemove(path); return Promise.resolve(); },
+    once: () => Promise.resolve({ val: () => localGet(path) }),
+    on: (evt, cb) => { LOCAL_LISTENERS.push({ path, cb }); cb({ val: () => localGet(path) }); },
+    off: () => { for (let i = LOCAL_LISTENERS.length - 1; i >= 0; i--) if (LOCAL_LISTENERS[i].path === path) LOCAL_LISTENERS.splice(i, 1); },
+  };
+}
+function ref(path) { return db ? db.ref(path) : localRef(path); }
+
+/* ============================================================ helpers */
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function genCode(len=6){ let s=""; for(let i=0;i<len;i++) s+=CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)]; return s; }
+const WEEKDAY = ["日","一","二","三","四","五","六"];
+const PALETTE = [
+  {name:"紅", hex:"#D9534F"}, {name:"藍", hex:"#3D6EA5"}, {name:"綠", hex:"#2F8F5B"},
+  {name:"黃", hex:"#E0A82E"}, {name:"紫", hex:"#7B5CA5"}, {name:"橘", hex:"#C97A3D"},
+  {name:"粉", hex:"#C2588E"}, {name:"青", hex:"#0E9488"},
+];
+function toISO(y,m,day){ return `${y}-${String(m+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`; }
+function fmtDate(d){ const dt=new Date(d+"T00:00:00"); return { md:`${dt.getMonth()+1}/${dt.getDate()}`, wd:WEEKDAY[dt.getDay()] }; }
+function buildMonthCells(y,m){
+  const startWd = new Date(y,m,1).getDay();
+  const daysInMonth = new Date(y,m+1,0).getDate();
+  const cells=[]; for(let i=0;i<startWd;i++) cells.push(null); for(let d=1;d<=daysInMonth;d++) cells.push(d);
+  return cells;
+}
+function daysRemaining(createdAt){
+  const expires = createdAt + 30*24*60*60*1000;
+  return Math.max(0, Math.ceil((expires - Date.now())/(24*60*60*1000)));
+}
+function showToast(msg){
+  const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(showToast._t); showToast._t=setTimeout(()=>t.classList.remove("show"),1800);
+}
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ============================================================ state */
+const today = new Date();
+const todayISO = toISO(today.getFullYear(), today.getMonth(), today.getDate());
+
+const state = {
+  view: "home",             // home | create | room
+  joinError: "",
+  roomCode: "",
+  room: null,                // {meta, participants}
+  nameDraft: "",
+  noteDraft: "",
+  calYear: today.getFullYear(),
+  calMonth: today.getMonth(),
+  rangeStart: null,          // reserved for future check-in/out mode
+  bestOnly: false,
+  expandedNoteUid: null,
+  formTitle: "",
+  formMode: "date",          // date | date_time
+  creating: false,
+  createError: "",
+};
+
+let roomRef = null;
+const app = document.getElementById("app");
+
+function render(){
+  if (state.view === "home") return renderHome();
+  if (state.view === "create") return renderCreate();
+  if (state.view === "room") return renderRoom();
+}
+
+/* ============================================================ HOME */
+function renderHome(){
+  app.innerHTML = `
+    <div class="center-wrap">
+      <div style="width:100%;max-width:420px;">
+        ${IS_PLACEHOLDER ? `<div class="banner"><b>尚未連接資料庫</b><br/>目前是本機預覽模式，重新整理或換裝置不會同步。請把最上方 <code>firebaseConfig</code> 換成你自己 Firebase 專案的設定。</div>` : ``}
+        <div style="text-align:center;margin-bottom:32px;">
+          <div class="eyebrow">共同排時間</div>
+          <h1 class="display" style="font-size:36px;font-weight:700;margin:6px 0 4px;">敲時間</h1>
+          <div style="color:var(--muted2);font-size:14px;">建立房間，讓大家在月曆上直接挑出有空的日子</div>
+        </div>
+        <div class="glass" style="padding:20px;margin-bottom:14px;">
+          <div style="font-weight:600;margin-bottom:10px;">建立新房間</div>
+          <button class="btn btn-primary btn-full" id="go-create">建立房間</button>
+        </div>
+        <div class="glass" style="padding:20px;">
+          <div style="font-weight:600;margin-bottom:10px;">加入房間</div>
+          <div class="row">
+            <input class="input mono" id="join-code" placeholder="房間代碼" maxlength="6" style="letter-spacing:.2em;font-size:16px;text-transform:uppercase;" />
+            <button class="btn btn-teal" id="join-btn" style="white-space:nowrap;">加入</button>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:8px;">也可以直接透過分享網址加入</div>
+          ${state.joinError ? `<div style="color:var(--danger);font-size:13px;margin-top:8px;">${esc(state.joinError)}</div>` : ``}
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById("go-create").onclick = () => { state.view="create"; render(); };
+  const codeInput = document.getElementById("join-code");
+  const doJoin = () => handleJoinRoom(codeInput.value);
+  document.getElementById("join-btn").onclick = doJoin;
+  codeInput.oninput = (e) => e.target.value = e.target.value.toUpperCase();
+  codeInput.onkeydown = (e) => { if(e.key==="Enter") doJoin(); };
+}
+
+async function handleJoinRoom(codeRaw){
+  const code = (codeRaw||"").trim().toUpperCase();
+  if (!code) return;
+  state.joinError = "";
+  const snap = await ref(`rooms/${code}/meta`).once("value");
+  const meta = snap.val();
+  if (!meta) { state.joinError = "找不到這個房間代碼，請確認後再試一次。"; render(); return; }
+  enterRoom(code);
+}
+
+/* ============================================================ CREATE */
+function renderCreate(){
+  app.innerHTML = `
+    <div class="wrap">
+      <button class="link-btn" id="back-home" style="margin-bottom:14px;">← 返回</button>
+      <h1 class="display" style="font-size:24px;font-weight:700;margin:0 0 18px;">建立新房間</h1>
+      <div class="glass" style="padding:18px;margin-bottom:16px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">活動名稱</label>
+        <input class="input" id="f-title" placeholder="例如：北海道旅行、部門會議" value="${esc(state.formTitle)}" style="margin-bottom:16px;" maxlength="30" />
+
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">模式</label>
+        <div class="row" style="margin-bottom:6px;">
+          <button class="btn ${state.formMode==='date'?'btn-primary':'btn-outline'}" style="flex:1;" id="mode-date">只挑日期</button>
+          <button class="btn ${state.formMode==='date_time'?'btn-primary':'btn-outline'}" style="flex:1;" id="mode-datetime">日期＋時段</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);">建立後大家可以直接從今天開始，往後任何日子都能挑，不用先指定候選日期。</div>
+      </div>
+      <button class="btn btn-primary btn-full" id="create-btn" ${(!state.formTitle.trim()||state.creating)?"disabled":""}>${state.creating?"建立中…":"建立房間"}</button>
+      ${state.createError ? `<div style="color:var(--danger);font-size:13px;margin-top:10px;text-align:center;">${esc(state.createError)}</div>` : ``}
+    </div>
+  `;
+  document.getElementById("back-home").onclick = () => { state.view="home"; render(); };
+  document.getElementById("f-title").oninput = (e) => { state.formTitle=e.target.value; document.getElementById("create-btn").disabled = !state.formTitle.trim()||state.creating; };
+  document.getElementById("mode-date").onclick = () => { state.formMode="date"; render(); };
+  document.getElementById("mode-datetime").onclick = () => { state.formMode="date_time"; render(); };
+  document.getElementById("create-btn").onclick = handleCreateRoom;
+}
+
+async function handleCreateRoom(){
+  if (!state.formTitle.trim()) return;
+  state.createError = "";
+  await authReady;
+  state.creating = true; render();
+  const code = genCode();
+  const meta = {
+    title: state.formTitle.trim(),
+    mode: state.formMode,
+    createdAt: Date.now(),
+    hostUid: myUid,
+    locked: false,
+  };
+  try {
+    await ref(`rooms/${code}/meta`).set(meta);
+    state.creating = false;
+    enterRoom(code, true);
+  } catch(e) {
+    state.creating = false;
+    state.createError = "建立房間失敗，請確認網路連線或 Firebase 設定後再試一次。";
+    render();
+  }
+}
+
+/* ============================================================ ROOM */
+function enterRoom(code, justCreated){
+  if (roomRef) roomRef.off("value");
+  state.roomCode = code;
+  state.room = null;
+  state.calYear = today.getFullYear();
+  state.calMonth = today.getMonth();
+  state.bestOnly = false;
+  state.expandedNoteUid = null;
+  state.view = "room";
+  render();
+
+  roomRef = ref(`rooms/${code}`);
+  roomRef.on("value", (snap) => {
+    state.room = snap.val();
+    if (!state.room) { showToast("這個房間已經被刪除"); state.view="home"; render(); return; }
+    render();
+  });
+
+  if (justCreated) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("code", code);
+    navigator.clipboard.writeText(url.toString()).then(()=>showToast("已複製分享連結")).catch(()=>{});
+    history.replaceState(null, "", url.toString());
+  }
+}
+
+function myParticipant(){
+  if (!state.room || !state.room.participants) return null;
+  return state.room.participants[myUid] || null;
+}
+
+async function submitName(){
+  const name = state.nameDraft.trim().slice(0,12);
+  if (!name) return;
+  await authReady;
+  const existing = Object.values(state.room.participants || {});
+  const usedColors = existing.map(p=>p.color);
+  const free = PALETTE.filter(c=>!usedColors.includes(c.hex));
+  const chosen = (free.length ? free : PALETTE)[Math.floor(Math.random()*(free.length?free.length:PALETTE.length))];
+  await ref(`rooms/${state.roomCode}/participants/${myUid}`).set({
+    name, color: chosen.hex, joinedAt: Date.now(), note: "", picks: {},
+  });
+}
+
+async function toggleDatePick(dateStr){
+  const me = myParticipant(); if (!me || state.room.meta.locked) return;
+  const picks = { ...(me.picks||{}) };
+  if (picks[dateStr]) delete picks[dateStr]; else picks[dateStr] = true;
+  await ref(`rooms/${state.roomCode}/participants/${myUid}/picks`).set(picks);
+}
+async function toggleSegment(dateStr, seg){
+  const me = myParticipant(); if (!me || state.room.meta.locked) return;
+  const picks = { ...(me.picks||{}) };
+  const cur = picks[dateStr] && typeof picks[dateStr]==="object" ? { ...picks[dateStr] } : {};
+  cur[seg] = !cur[seg];
+  if (!cur.morning && !cur.afternoon && !cur.evening) delete picks[dateStr]; else picks[dateStr] = cur;
+  await ref(`rooms/${state.roomCode}/participants/${myUid}/picks`).set(picks);
+}
+async function clearMyPicks(){
+  const me = myParticipant(); if (!me) return;
+  await ref(`rooms/${state.roomCode}/participants/${myUid}/picks`).set({});
+  showToast("已清除你的所有勾選");
+}
+async function saveNote(){
+  const me = myParticipant(); if (!me) return;
+  await ref(`rooms/${state.roomCode}/participants/${myUid}/note`).set(state.noteDraft.trim().slice(0,50));
+  showToast("備註已儲存");
+}
+async function toggleLock(){
+  await ref(`rooms/${state.roomCode}/meta/locked`).set(!state.room.meta.locked);
+}
+async function deleteRoom(){
+  if (!confirm("確定要刪除這個房間嗎？所有人的資料都會消失，無法復原。")) return;
+  await ref(`rooms/${state.roomCode}`).remove();
+  state.view = "home"; render();
+}
+function jumpToday(){ state.calYear=today.getFullYear(); state.calMonth=today.getMonth(); render(); }
+function shiftMonth(delta){
+  let m=state.calMonth+delta, y=state.calYear;
+  if (m<0){m=11;y-=1;} if (m>11){m=0;y+=1;}
+  state.calYear=y; state.calMonth=m; render();
+}
+function jumpToDate(dateStr){
+  const dt = new Date(dateStr+"T00:00:00");
+  state.calYear = dt.getFullYear(); state.calMonth = dt.getMonth(); render();
+}
+function copyShareUrl(){
+  const url = new URL(window.location.href); url.searchParams.set("code", state.roomCode);
+  navigator.clipboard.writeText(url.toString()).then(()=>showToast("已複製分享連結")).catch(()=>{});
+}
+function copyCode(){
+  navigator.clipboard.writeText(state.roomCode).then(()=>showToast("已複製房號")).catch(()=>{});
+}
+
+function heatColor(count, total){
+  if (!total || !count) return "#FFFFFF";
+  const t = count/total;
+  // gray -> yellow -> green -> deep green
+  const stops = [
+    {p:0, c:[240,241,238]}, {p:0.33, c:[230,192,74]}, {p:0.66, c:[110,168,96]}, {p:1, c:[27,110,62]},
+  ];
+  let a=stops[0], b=stops[stops.length-1];
+  for (let i=0;i<stops.length-1;i++){ if (t>=stops[i].p && t<=stops[i+1].p){ a=stops[i]; b=stops[i+1]; break; } }
+  const span = (b.p-a.p) || 1; const lt = (t-a.p)/span;
+  const r=Math.round(a.c[0]+(b.c[0]-a.c[0])*lt), g=Math.round(a.c[1]+(b.c[1]-a.c[1])*lt), bl=Math.round(a.c[2]+(b.c[2]-a.c[2])*lt);
+  return `rgb(${r},${g},${bl})`;
+}
+
+function renderRoom(){
+  if (!state.room || !state.room.meta) {
+    app.innerHTML = `<div class="center-wrap"><div style="color:var(--muted2);">載入中…</div></div>`;
+    return;
+  }
+  const meta = state.room.meta;
+  const participants = Object.entries(state.room.participants || {}).map(([uid,p])=>({uid,...p}));
+  const me = myParticipant();
+  const isHost = myUid === meta.hostUid;
+  const total = participants.length;
+  const remaining = daysRemaining(meta.createdAt);
+  const createdStr = new Date(meta.createdAt).toLocaleDateString("zh-TW");
+
+  // day counts
+  const countMap = {};
+  participants.forEach(p => {
+    Object.entries(p.picks||{}).forEach(([d,v])=>{
+      if (meta.mode === "date_time") {
+        if (v && typeof v === "object" && (v.morning||v.afternoon||v.evening)) countMap[d]=(countMap[d]||0)+1;
+      } else if (v) countMap[d]=(countMap[d]||0)+1;
+    });
+  });
+  const ranked = Object.keys(countMap).sort((a,b)=>countMap[b]-countMap[a]).slice(0,3);
+  const topSet = new Set(ranked);
+
+  const monthCells = buildMonthCells(state.calYear, state.calMonth);
+  const canPrevMonth = !(state.calYear===today.getFullYear() && state.calMonth===today.getMonth());
+
+  const legendHtml = participants.length ? `
+    <div class="legend">
+      ${participants.map(p=>`
+        <span class="legend-chip">
+          <span class="dot" style="background:${p.color}"></span>${esc(p.name)}
+          ${p.note ? `<button class="link-btn note-toggle" data-uid="${p.uid}" style="font-size:12px;">💬</button>` : ``}
+        </span>
+      `).join("")}
+    </div>
+    ${state.expandedNoteUid ? (() => {
+      const p = participants.find(x=>x.uid===state.expandedNoteUid);
+      if (!p || !p.note) return "";
+      return `<div class="fade-in" style="margin-top:8px;font-size:12.5px;color:var(--muted2);background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px;">
+        <span class="dot" style="background:${p.color};margin-right:5px;"></span><b style="color:var(--ink);">${esc(p.name)}：</b>${esc(p.note)}
+      </div>`;
+    })() : ``}
+  ` : `<div style="font-size:12.5px;color:var(--muted);">還沒有人加入</div>`;
+
+  const rankHtml = ranked.length ? `
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="font-size:12.5px;font-weight:600;color:var(--muted2);">熱門日期</div>
+        <label class="switch ${state.bestOnly?'on':''}" id="best-only-toggle">
+          <span class="track"><span class="thumb"></span></span>只看最佳日期
+        </label>
+      </div>
+      <div class="rank-row">
+        ${ranked.map((d,i)=>{ const {md,wd}=fmtDate(d); const medal=["🥇","🥈","🥉"][i]; return `
+          <div class="rank-chip" data-jump="${d}">
+            <span class="rank-medal">${medal}</span>
+            <span>${md} 週${wd}</span>
+            <span class="n">${countMap[d]} 人</span>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+  ` : ``;
+
+  let calCellsHtml = "";
+  monthCells.forEach((day, i) => {
+    if (day === null) { calCellsHtml += `<div class="cal-cell pad"></div>`; return; }
+    const dateStr = toISO(state.calYear, state.calMonth, day);
+    const isPast = dateStr < todayISO;
+    const isTodayCell = dateStr === todayISO;
+    const count = countMap[dateStr] || 0;
+    const faded = state.bestOnly && ranked.length && !topSet.has(dateStr) && dateStr !== todayISO;
+    const bg = heatColor(count, total);
+    const dotsHtml = participants.filter(p => {
+      const v = p.picks && p.picks[dateStr];
+      return meta.mode==="date_time" ? (v && typeof v==="object" && (v.morning||v.afternoon||v.evening)) : !!v;
+    }).map(p => `<span class="dot" style="background:${p.color}"></span>`).join("");
+
+    let segHtml = "";
+    if (meta.mode === "date_time") {
+      const segDefs = [["morning","上午"],["afternoon","下午"],["evening","晚上"]];
+      segHtml = `<div class="segrow">` + segDefs.map(([key,label]) => {
+        const segCount = participants.filter(p => p.picks && p.picks[dateStr] && p.picks[dateStr][key]).length;
+        const active = me && me.picks && me.picks[dateStr] && me.picks[dateStr][key];
+        const segBg = segCount>0 ? heatColor(segCount,total) : "";
+        return `<div class="seg ${active?'active':''}" data-seg-date="${dateStr}" data-seg="${key}" style="${active?`background:${me.color};`:segBg?`background:${segBg};color:#14213D;`:''}">${label}</div>`;
+      }).join("") + `</div>`;
+    }
+
+    calCellsHtml += `
+      <div class="cal-cell ${isPast?'disabled':''} ${isTodayCell?'today':''} ${faded?'faded':''}" data-date="${meta.mode==='date' && !isPast ? dateStr : ''}" style="background:${meta.mode==='date' ? bg : '#fff'};">
+        <div class="cal-daynum">${day}</div>
+        ${meta.mode==='date' ? `<div class="dotwrap">${dotsHtml}</div>` : segHtml}
+      </div>
+    `;
+  });
+
+  app.innerHTML = `
+    <div class="wrap">
+      <div class="glass" style="padding:16px 18px;margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+          <div>
+            <button class="link-btn" id="leave-room" style="margin-bottom:6px;">← 離開房間</button>
+            <h1 class="display" style="font-size:21px;font-weight:700;margin:0;">${esc(meta.title)}</h1>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">建立於 ${createdStr} · 剩餘 ${remaining} 天 · ${total} 人已加入 ${meta.locked?'· <b style="color:var(--danger);">已鎖定</b>':''}</div>
+          </div>
+          <div class="ticket"><div class="ticket-label mono">ROOM</div><div class="ticket-code mono">${state.roomCode}</div></div>
+        </div>
+        <div class="row" style="margin-top:12px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" id="share-btn">分享連結</button>
+          <button class="btn btn-outline btn-sm" id="copy-code-btn">複製房號</button>
+          ${isHost ? `<button class="btn btn-outline btn-sm" id="lock-btn">${meta.locked?"解除鎖定":"鎖定投票"}</button>` : ``}
+          ${isHost ? `<button class="btn btn-danger btn-sm" id="delete-btn">刪除房間</button>` : ``}
+        </div>
+      </div>
+
+      <div class="glass" style="padding:16px 14px;margin-bottom:14px;">
+        <div style="font-size:12.5px;font-weight:600;color:var(--muted2);margin-bottom:6px;">參與者</div>
+        ${legendHtml}
+      </div>
+
+      ${!me ? `
+      <div class="glass fade-in" style="padding:18px;margin-bottom:14px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:8px;">你的名字</label>
+        <div class="row">
+          <input class="input" id="name-input" placeholder="輸入名字加入房間" maxlength="12" />
+          <button class="btn btn-teal" id="submit-name" style="white-space:nowrap;">加入</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px;">名字送出後就不能修改，系統會自動配一個專屬顏色。</div>
+      </div>` : `
+
+      <div class="glass" style="padding:16px 14px;margin-bottom:14px;">
+        ${meta.locked ? `<div style="font-size:12.5px;color:var(--danger);margin-bottom:8px;">房主已鎖定，目前僅能查看。</div>` : ``}
+        <div class="row" style="margin-bottom:12px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" id="jump-today">今日</button>
+          <button class="btn btn-outline btn-sm" id="clear-mine">清除我的勾選</button>
+          <div style="margin-left:auto;font-size:12.5px;color:var(--muted2);display:flex;align-items:center;gap:6px;">
+            <span class="dot" style="background:${me.color}"></span>你是 ${esc(me.name)}
+          </div>
+        </div>
+
+        ${rankHtml}
+
+        <div class="cal-head">
+          <button class="cal-nav" id="cal-prev" ${canPrevMonth?"":"disabled"}>‹</button>
+          <div class="display" style="font-weight:700;font-size:15px;">${state.calYear} 年 ${state.calMonth+1} 月</div>
+          <button class="cal-nav" id="cal-next">›</button>
+        </div>
+        <div class="cal-grid-wd">${WEEKDAY.map(w=>`<div class="cal-wd">${w}</div>`).join("")}</div>
+        <div class="cal-grid">${calCellsHtml}</div>
+
+        <div style="margin-top:14px;">
+          <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">我的備註（最多 50 字，選填）</label>
+          <div class="row">
+            <textarea class="input" id="note-input" rows="1" maxlength="50" placeholder="例如：晚上七點後才有空">${esc(me.note||"")}</textarea>
+            <button class="btn btn-outline btn-sm" id="save-note" style="white-space:nowrap;">儲存</button>
+          </div>
+        </div>
+      </div>
+      `}
+    </div>
+  `;
+
+  document.getElementById("leave-room").onclick = () => { if(roomRef) roomRef.off("value"); state.view="home"; render(); };
+  document.getElementById("share-btn").onclick = copyShareUrl;
+  document.getElementById("copy-code-btn").onclick = copyCode;
+  const lockBtn = document.getElementById("lock-btn"); if (lockBtn) lockBtn.onclick = toggleLock;
+  const delBtn = document.getElementById("delete-btn"); if (delBtn) delBtn.onclick = deleteRoom;
+
+  document.querySelectorAll(".note-toggle").forEach(btn => {
+    btn.onclick = () => { state.expandedNoteUid = state.expandedNoteUid===btn.dataset.uid ? null : btn.dataset.uid; render(); };
+  });
+
+  if (!me) {
+    const nameInput = document.getElementById("name-input");
+    nameInput.oninput = (e) => state.nameDraft = e.target.value;
+    nameInput.onkeydown = (e) => { if (e.key==="Enter") submitName(); };
+    document.getElementById("submit-name").onclick = submitName;
+    nameInput.focus();
+    return;
+  }
+
+  document.getElementById("jump-today").onclick = jumpToday;
+  document.getElementById("clear-mine").onclick = clearMyPicks;
+  const bestToggle = document.getElementById("best-only-toggle");
+  if (bestToggle) bestToggle.onclick = () => { state.bestOnly = !state.bestOnly; render(); };
+  document.getElementById("cal-prev").onclick = () => shiftMonth(-1);
+  document.getElementById("cal-next").onclick = () => shiftMonth(1);
+  document.querySelectorAll("[data-jump]").forEach(el => el.onclick = () => jumpToDate(el.dataset.jump));
+
+  if (meta.mode === "date") {
+    document.querySelectorAll(".cal-cell[data-date]").forEach(cell => {
+      const d = cell.dataset.date; if (!d) return;
+      cell.onclick = () => toggleDatePick(d);
+    });
+  } else {
+    document.querySelectorAll("[data-seg-date]").forEach(el => {
+      el.onclick = (ev) => { ev.stopPropagation(); toggleSegment(el.dataset.segDate, el.dataset.seg); };
+    });
+  }
+
+  const noteInput = document.getElementById("note-input");
+  noteInput.oninput = (e) => state.noteDraft = e.target.value;
+  document.getElementById("save-note").onclick = saveNote;
+}
+
+/* ============================================================ boot */
+(async function boot(){
+  await authReady;
+  const params = new URLSearchParams(window.location.search);
+  const codeParam = params.get("code");
+  render();
+  if (codeParam) {
+    const code = codeParam.trim().toUpperCase();
+    const snap = await ref(`rooms/${code}/meta`).once("value");
+    if (snap.val()) enterRoom(code);
+  }
+})();
+</script>
+</body>
+</html>
