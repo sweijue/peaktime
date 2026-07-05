@@ -429,7 +429,7 @@ async function handleCreateRoom(){
   try {
     await ref(`rooms/${code}/meta`).set(meta);
     state.creating = false;
-    enterRoom(code, true);
+    enterRoom(code, true, meta.title);
   } catch(e) {
     state.creating = false;
     state.createError = "建立房間失敗，請確認網路連線或 Firebase 設定後再試一次。";
@@ -438,7 +438,7 @@ async function handleCreateRoom(){
 }
 
 /* ============================================================ ROOM */
-function enterRoom(code, justCreated){
+function enterRoom(code, justCreated, knownTitle){
   if (roomRef) roomRef.off("value");
   state.roomCode = code;
   state.room = null;
@@ -470,11 +470,18 @@ function enterRoom(code, justCreated){
   });
 
   if (justCreated) {
+    navigator.clipboard.writeText(buildShareText(code, knownTitle)).then(()=>showToast("已複製分享連結")).catch(()=>{});
     const url = new URL(window.location.href);
     url.searchParams.set("code", code);
-    navigator.clipboard.writeText(url.toString()).then(()=>showToast("已複製分享連結")).catch(()=>{});
     history.replaceState(null, "", url.toString());
   }
+}
+
+function buildShareText(code, titleOverride){
+  const url = new URL(window.location.href);
+  url.searchParams.set("code", code);
+  const title = titleOverride !== undefined ? titleOverride : (state.room && state.room.meta ? state.room.meta.title : "");
+  return `快來敲時間！${title ? `《${title}》` : ""}\n房號：${code}\n${url.toString()}`;
 }
 
 function myParticipant(){
@@ -561,8 +568,7 @@ function jumpToDate(dateStr){
   render();
 }
 function copyShareUrl(){
-  const url = new URL(window.location.href); url.searchParams.set("code", state.roomCode);
-  navigator.clipboard.writeText(url.toString()).then(()=>showToast("已複製分享連結（含房號）")).catch(()=>{});
+  navigator.clipboard.writeText(buildShareText(state.roomCode)).then(()=>showToast("已複製分享文字（含房號與連結）")).catch(()=>{});
 }
 
 function heatColor(count, total){
