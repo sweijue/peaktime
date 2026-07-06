@@ -233,6 +233,22 @@ function daysRemaining(createdAt){
   const expires = createdAt + 30*24*60*60*1000;
   return Math.max(0, Math.ceil((expires - Date.now())/(24*60*60*1000)));
 }
+async function sweepExpiredRooms(){
+  // Best-effort site-wide cleanup: runs whenever ANYONE opens the site (not just
+  // the specific expired room), so an abandoned room can still get cleaned up
+  // as long as someone, anywhere, visits the site at all.
+  try {
+    const snap = await ref("rooms").once("value");
+    const rooms = snap.val();
+    if (!rooms) return;
+    const deletions = Object.entries(rooms)
+      .filter(([, r]) => r && r.meta && daysRemaining(r.meta.createdAt) <= 0)
+      .map(([code]) => ref(`rooms/${code}`).remove());
+    if (deletions.length) await Promise.all(deletions);
+  } catch (e) {
+    // best-effort only; ignore failures (e.g. permission errors)
+  }
+}
 function showToast(msg){
   const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
   clearTimeout(showToast._t); showToast._t=setTimeout(()=>t.classList.remove("show"),1800);
@@ -255,7 +271,6 @@ const state = {
   selectedDetailDate: null,  // which date's time-of-day picker is open (date_time mode)
   confirmDeleteOpen: false,
   bestOnly: false,
-  expandedNoteUid: null,
   formTitle: "",
   formMode: "date",          // date | date_time
   formRestrictDates: false,
@@ -289,6 +304,7 @@ function renderHome(){
           <div class="eyebrow">共同排時間</div>
           <h1 class="display" style="font-size:36px;font-weight:700;margin:6px 0 4px;">敲時間</h1>
           <div style="color:var(--muted2);font-size:14px;">建立房間，讓大家在月曆上直接挑出有空的日子</div>
+          <div style="color:var(--muted);font-size:12px;margin-top:4px;">大家的選擇會即時同步更新，不用重新整理頁面</div>
         </div>
         <div class="glass" style="padding:20px;margin-bottom:14px;">
           <div style="font-weight:600;margin-bottom:10px;">建立新房間</div>
@@ -456,7 +472,6 @@ function enterRoom(code, justCreated, knownTitle){
   state.calYear = today.getFullYear();
   state.calMonth = today.getMonth();
   state.bestOnly = false;
-  state.expandedNoteUid = null;
   state.selectedDetailDate = null;
   state.confirmDeleteOpen = false;
   state.view = "room";
@@ -730,17 +745,10 @@ function renderRoom(){
       ${participants.map(p=>`
         <span class="legend-chip">
           <span class="dot" style="background:${p.color}"></span>${esc(p.name)}${p.uid===meta.hostUid?' 👑':''}
-          ${p.note ? `<button class="link-btn note-toggle" data-uid="${p.uid}" style="font-size:12px;">💬</button>` : ``}
+          ${p.note ? `<span style="color:var(--muted2);font-style:italic;">・${esc(p.note)}</span>` : ``}
         </span>
       `).join("")}
     </div>
-    ${state.expandedNoteUid ? (() => {
-      const p = participants.find(x=>x.uid===state.expandedNoteUid);
-      if (!p || !p.note) return "";
-      return `<div class="fade-in" style="margin-top:8px;font-size:12.5px;color:var(--muted2);background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px;">
-        <span class="dot" style="background:${p.color};margin-right:5px;"></span><b style="color:var(--ink);">${esc(p.name)}：</b>${esc(p.note)}
-      </div>`;
-    })() : ``}
   ` : `<div style="font-size:12.5px;color:var(--muted);">還沒有人加入</div>`;
 
   function bestSlotForDate(dateStr) {
@@ -965,10 +973,6 @@ function renderRoom(){
     btn.onclick = (ev) => { ev.stopPropagation(); finalizeDate(btn.dataset.finalDate, btn.dataset.finalSlot); };
   });
 
-  document.querySelectorAll(".note-toggle").forEach(btn => {
-    btn.onclick = () => { state.expandedNoteUid = state.expandedNoteUid===btn.dataset.uid ? null : btn.dataset.uid; render(); };
-  });
-
   if (!me) {
     const nameInput = document.getElementById("name-input");
     nameInput.oninput = (e) => state.nameDraft = e.target.value;
@@ -1022,6 +1026,7 @@ render(); // show the home screen immediately; don't block on Firebase
     const codeParam = params.get("code");
     await authReady;
     if (state.view === "home") render(); // pick up FIREBASE_INIT_ERROR banner if init failed
+    sweepExpiredRooms(); // fire-and-forget, doesn't block the page
     if (codeParam) {
       const code = codeParam.trim().toUpperCase();
       const snap = await ref(`rooms/${code}/meta`).once("value");
