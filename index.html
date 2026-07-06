@@ -271,6 +271,7 @@ const state = {
   selectedDetailDate: null,  // which date's time-of-day picker is open (date_time mode)
   confirmDeleteOpen: false,
   bestOnly: false,
+  showAllResults: false,
   formTitle: "",
   formMode: "date",          // date | date_time
   formRestrictDates: false,
@@ -472,6 +473,7 @@ function enterRoom(code, justCreated, knownTitle){
   state.calYear = today.getFullYear();
   state.calMonth = today.getMonth();
   state.bestOnly = false;
+  state.showAllResults = false;
   state.selectedDetailDate = null;
   state.confirmDeleteOpen = false;
   state.view = "room";
@@ -734,7 +736,8 @@ function renderRoom(){
       } else if (v) countMap[d]=(countMap[d]||0)+1;
     });
   });
-  const ranked = Object.keys(countMap).sort((a,b)=>countMap[b]-countMap[a]).slice(0,3);
+  const allDatesSorted = Object.keys(countMap).sort((a,b)=>countMap[b]-countMap[a]);
+  const ranked = allDatesSorted.slice(0,3);
   const topSet = new Set(ranked);
 
   const monthCells = buildMonthCells(state.calYear, state.calMonth);
@@ -787,6 +790,28 @@ function renderRoom(){
           </div>`;
         }).join("")}
       </div>
+      ${allDatesSorted.length > 3 ? `
+      <div style="text-align:right;margin-top:6px;">
+        <button class="link-btn" id="toggle-all-results" style="font-size:11.5px;">${state.showAllResults ? "收起" : `查看全部結果（共 ${allDatesSorted.length} 天）`} ${state.showAllResults ? "▴" : "▾"}</button>
+      </div>
+      ${state.showAllResults ? `
+      <div class="fade-in" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px;">
+        ${allDatesSorted.map((d,i) => {
+          const {md,wd} = fmtDate(d);
+          const names = participants.filter(p => {
+            const v = p.picks && p.picks[d];
+            return meta.mode === "date_time" ? hasAnySlot(v) : !!v;
+          }).map(p=>p.name);
+          const bestSlot = bestSlotForDate(d);
+          return `
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 2px;font-size:12.5px;${i<allDatesSorted.length-1?'border-bottom:1px solid var(--line);':''}">
+            <span><b style="color:var(--ink);">${i+1}.</b> ${md} 週${wd} <span style="color:var(--muted);">${names.join("、")}</span></span>
+            <span style="color:var(--teal);font-weight:600;white-space:nowrap;margin-left:8px;">${countMap[d]}人${bestSlot?` · ${bestSlot.label}`:``}</span>
+          </div>`;
+        }).join("")}
+      </div>
+      ` : ``}
+      ` : ``}
     </div>
   ` : ``;
 
@@ -986,6 +1011,8 @@ function renderRoom(){
   document.getElementById("clear-mine").onclick = clearMyPicks;
   const bestToggle = document.getElementById("best-only-toggle");
   if (bestToggle) bestToggle.onclick = () => { state.bestOnly = !state.bestOnly; render(); };
+  const toggleAllResults = document.getElementById("toggle-all-results");
+  if (toggleAllResults) toggleAllResults.onclick = () => { state.showAllResults = !state.showAllResults; render(); };
   document.getElementById("cal-prev").onclick = () => shiftMonth(-1);
   document.getElementById("cal-next").onclick = () => shiftMonth(1);
   document.querySelectorAll("[data-jump]").forEach(el => el.onclick = () => jumpToDate(el.dataset.jump));
