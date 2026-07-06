@@ -68,11 +68,11 @@
   .cal-head{display:flex;align-items:center;justify-content:space-between;margin:6px 0 10px;}
   .cal-nav{width:32px;height:32px;border-radius:50%;border:none;background:rgba(20,33,61,0.06);color:var(--ink);cursor:pointer;font-size:17px;line-height:1;}
   .cal-nav:disabled{opacity:.25;cursor:not-allowed;}
-  .cal-grid-wd{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:4px;}
+  .cal-grid-wd{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:4px;}
   .cal-wd{text-align:center;font-size:11px;color:var(--muted);font-weight:600;}
-  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;}
   .cal-cell{
-    min-height:64px; border-radius:14px; border:1px solid var(--line); background:#fff;
+    min-height:64px; min-width:0; overflow:hidden; border-radius:14px; border:1px solid var(--line); background:#fff;
     display:flex;flex-direction:column;padding:5px 5px 4px;cursor:pointer;position:relative;transition:background .15s ease, opacity .2s ease;
   }
   @media (min-width:480px){ .cal-cell{ min-height:88px; } }
@@ -81,7 +81,7 @@
   .cal-cell.faded{opacity:.35;}
   .cal-daynum{font-size:13px;font-weight:600;color:var(--ink);}
   .cal-cell.today .cal-daynum{color:var(--teal);}
-  .holiday-tag{font-size:9px;font-weight:700;color:var(--danger);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+  .holiday-tag{font-size:9px;font-weight:700;color:var(--danger);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;min-width:0;}
   .cal-cell.mine{box-shadow:inset 0 0 0 2px var(--mine-color, var(--teal));}
   .dotwrap{display:flex;flex-wrap:wrap;gap:2px;margin-top:3px;}
   .hourlist{max-height:360px;overflow-y:auto;padding-right:2px;}
@@ -1046,6 +1046,9 @@ function renderRoom(){
         <div class="cal-grid-wd">${WEEKDAY.map(w=>`<div class="cal-wd">${w}</div>`).join("")}</div>
         <div class="cal-grid">${calCellsHtml}</div>
         ${dayDetailHtml}
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;">
+          🎌 紅字為國定假日、橘字為補班日，資料為自動抓取的社群整理版本。如有出入請以<a href="https://www.dgpa.gov.tw" target="_blank" rel="noopener" style="color:var(--teal);text-decoration:underline;">行政院人事行政總處官方行事曆</a>為準。
+        </div>
 
         <div style="margin-top:14px;">
           <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px;">我的備註（最多 50 字，選填）</label>
