@@ -219,36 +219,49 @@ function genCode(len=6){ let s=""; for(let i=0;i<len;i++) s+=CODE_CHARS[Math.flo
 const WEEKDAY = ["日","一","二","三","四","五","六"];
 
 /* ============================================================
-   台灣官方國定假日（依行政院人事行政總處公告的辦公日曆表）
-   來源：114年6月13日公布之中華民國115年(2026年)政府行政機關辦公日曆表
-   包含補假日。之後每年約6月底前會公告次年行事曆，屆時可在下面
-   新增當年的日期即可，格式都是 "YYYY-MM-DD": "假期名稱"。
+   台灣國定假日資料 — 即時抓取，不是寫死在程式碼裡。
+   資料來源：ruyut/TaiwanCalendar（GitHub 上的開源社群專案，根據
+   行政院人事行政總處公告的官方辦公日曆表整理），透過 jsDelivr
+   這個公開 CDN 提供，瀏覽器可以直接讀取。只要那個專案更新了新
+   年度的資料，這裡下次抓取就會自動拿到最新的，不用手動修改。
+
+   注意：這份資料是社群整理、可能有誤差或更新延遲，不是政府官方
+   即時發布的 API。如果對某個日期有疑慮，請以官方公告為準（首頁
+   使用說明裡有附官方行事曆連結）。
 ============================================================ */
-const TW_HOLIDAYS = {
-  "2026-01-01": "元旦",
-  "2026-02-15": "小年夜",
-  "2026-02-16": "除夕",
-  "2026-02-17": "春節",
-  "2026-02-18": "春節",
-  "2026-02-19": "春節",
-  "2026-02-20": "小年夜補假",
-  "2026-02-27": "和平紀念日補假",
-  "2026-02-28": "和平紀念日",
-  "2026-04-03": "兒童節補假",
-  "2026-04-04": "兒童節",
-  "2026-04-05": "清明節",
-  "2026-04-06": "清明節補假",
-  "2026-05-01": "勞動節",
-  "2026-06-19": "端午節",
-  "2026-09-25": "中秋節",
-  "2026-09-28": "教師節",
-  "2026-10-09": "國慶日補假",
-  "2026-10-10": "國慶日",
-  "2026-10-25": "台灣光復節",
-  "2026-10-26": "台灣光復節補假",
-  "2026-12-25": "行憲紀念日",
-};
-function getHoliday(dateStr) { return TW_HOLIDAYS[dateStr] || null; }
+const TW_HOLIDAY_CACHE = {};      // year(string) -> {dateStr: {name, isHoliday}} | null(抓取失敗)
+const TW_HOLIDAY_FETCHING = new Set();
+
+function ensureHolidayYearLoaded(year) {
+  if (TW_HOLIDAY_CACHE[year] !== undefined || TW_HOLIDAY_FETCHING.has(year)) return;
+  TW_HOLIDAY_FETCHING.add(year);
+  fetch(`https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/${year}.json`)
+    .then(res => { if (!res.ok) throw new Error("no data for " + year); return res.json(); })
+    .then(list => {
+      const map = {};
+      list.forEach(item => {
+        if (item.description) {
+          const d = item.date; // "YYYYMMDD"
+          const iso = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+          map[iso] = { name: item.description, isHoliday: !!item.isHoliday };
+        }
+      });
+      TW_HOLIDAY_CACHE[year] = map;
+      TW_HOLIDAY_FETCHING.delete(year);
+      if (state.view === "room") render(); // 資料抓到後刷新一次月曆
+    })
+    .catch(() => {
+      TW_HOLIDAY_CACHE[year] = null; // 標記抓取失敗，避免一直重試
+      TW_HOLIDAY_FETCHING.delete(year);
+    });
+}
+function getHoliday(dateStr) {
+  const year = dateStr.slice(0,4);
+  ensureHolidayYearLoaded(year);
+  const map = TW_HOLIDAY_CACHE[year];
+  return map ? (map[dateStr] || null) : null;
+}
+
 
 const PALETTE = [
   {name:"紅", hex:"#D9534F"}, {name:"藍", hex:"#3D6EA5"}, {name:"綠", hex:"#2F8F5B"},
@@ -345,12 +358,12 @@ function renderHome(){
             <button class="link-btn" id="toggle-help" style="font-size:16px;">使用說明 ${state.showHelp ? "▴" : "▾"}</button>
           </div>
           ${state.showHelp ? `
-          <div class="fade-in" style="text-align:left;font-size:16.5px;color:var(--muted2);line-height:1.9;margin-top:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;">
+          <div class="fade-in" style="text-align:left;font-size:14.5px;color:var(--muted2);line-height:1.9;margin-top:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;">
             <div>📅 建立房間後會拿到一組房號，把房號或連結傳給大家，大家輸入暱稱就能加入。</div>
             <div>🖐️ 在月曆上點日期（或時段）就是勾選你有空的時間，再點一次可以取消。</div>
             <div>🎨 每個人進房間會自動配一個顏色，不用自己選，方便在結果裡分辨是誰。</div>
             <div>🔥 日期顏色越深、代表越多人有空；上面會有「熱門日期」排行榜。</div>
-            <div>🎌 月曆上紅字標註的是台灣國定假日（含補假），方便看出是不是有連假。</div>
+            <div>🎌 月曆上紅字標註的是台灣國定假日（含補假，橘字是補班日），方便看出是不是有連假。這份假日資料是自動抓取的社群整理版本，萬一哪天資料有誤或更新較慢，請以<a href="https://www.dgpa.gov.tw" target="_blank" rel="noopener" style="color:var(--teal);text-decoration:underline;">行政院人事行政總處官方行事曆</a>為準。</div>
             <div>👑 建立房間的人是房主，可以鎖定投票、刪除房間、把某天設為最終定案。</div>
             <div>🙋 <b>下次要怎麼讓系統認得你？</b>只要用「同一台手機或同一個瀏覽器」打開同一個房間，系統就會自動記得你是誰，不用重新輸入暱稱。如果換了手機、換瀏覽器，或清除過瀏覽器資料，就會被當成新的人喔。</div>
             <div>⏳ 房間建立滿 30 天後會被自動清除。</div>
@@ -813,7 +826,7 @@ function renderRoom(){
   const legendHtml = participants.length ? `
     <div class="legend">
       ${participants.map(p=>`
-        <span class="legend-chip" style="font-size:16.5px;">
+        <span class="legend-chip" style="font-size:14.5px;">
           <span class="dot" style="background:${p.color}"></span>${esc(p.name)}${p.uid===meta.hostUid?' 👑':''}
           ${p.note ? `<span style="color:var(--muted2);font-style:italic;">・${esc(p.note)}</span>` : ``}
         </span>
@@ -900,11 +913,12 @@ function renderRoom(){
 
     const isOpenDetail = meta.mode === "date_time" && state.selectedDetailDate === dateStr;
     const holiday = getHoliday(dateStr);
+    const holidayColor = holiday ? (holiday.isHoliday ? "var(--danger)" : "#8A6D1E") : "";
 
     calCellsHtml += `
       <div class="cal-cell ${isDisabled?'disabled':''} ${isTodayCell?'today':''} ${faded?'faded':''}" data-date="${!isDisabled ? dateStr : ''}" style="background:${bg};${isOpenDetail?'box-shadow:inset 0 0 0 2px #E3A857;':''}">
-        <div class="cal-daynum" style="${holiday?'color:var(--danger);':''}">${day}</div>
-        ${holiday ? `<div class="holiday-tag">${holiday}</div>` : ``}
+        <div class="cal-daynum" style="${holiday?`color:${holidayColor};`:''}">${day}</div>
+        ${holiday ? `<div class="holiday-tag" style="color:${holidayColor};">${esc(holiday.name)}</div>` : ``}
         <div class="dotwrap">${dotsHtml}</div>
       </div>
     `;
@@ -998,7 +1012,7 @@ function renderRoom(){
       `}
 
       <div class="glass" style="padding:16px 14px;margin-bottom:14px;">
-        <div style="font-size:16.5px;font-weight:600;color:var(--muted2);margin-bottom:6px;">參與者</div>
+        <div style="font-size:14.5px;font-weight:600;color:var(--muted2);margin-bottom:6px;">參與者</div>
         ${legendHtml}
       </div>
 
