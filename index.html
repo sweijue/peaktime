@@ -81,6 +81,7 @@
   .cal-cell.faded{opacity:.35;}
   .cal-daynum{font-size:13px;font-weight:600;color:var(--ink);}
   .cal-cell.today .cal-daynum{color:var(--teal);}
+  .holiday-tag{font-size:9px;font-weight:700;color:var(--danger);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
   .cal-cell.mine{box-shadow:inset 0 0 0 2px var(--mine-color, var(--teal));}
   .dotwrap{display:flex;flex-wrap:wrap;gap:2px;margin-top:3px;}
   .hourlist{max-height:360px;overflow-y:auto;padding-right:2px;}
@@ -216,6 +217,39 @@ function ref(path) { return db ? db.ref(path) : localRef(path); }
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function genCode(len=6){ let s=""; for(let i=0;i<len;i++) s+=CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)]; return s; }
 const WEEKDAY = ["日","一","二","三","四","五","六"];
+
+/* ============================================================
+   台灣官方國定假日（依行政院人事行政總處公告的辦公日曆表）
+   來源：114年6月13日公布之中華民國115年(2026年)政府行政機關辦公日曆表
+   包含補假日。之後每年約6月底前會公告次年行事曆，屆時可在下面
+   新增當年的日期即可，格式都是 "YYYY-MM-DD": "假期名稱"。
+============================================================ */
+const TW_HOLIDAYS = {
+  "2026-01-01": "元旦",
+  "2026-02-15": "小年夜",
+  "2026-02-16": "除夕",
+  "2026-02-17": "春節",
+  "2026-02-18": "春節",
+  "2026-02-19": "春節",
+  "2026-02-20": "小年夜補假",
+  "2026-02-27": "和平紀念日補假",
+  "2026-02-28": "和平紀念日",
+  "2026-04-03": "兒童節補假",
+  "2026-04-04": "兒童節",
+  "2026-04-05": "清明節",
+  "2026-04-06": "清明節補假",
+  "2026-05-01": "勞動節",
+  "2026-06-19": "端午節",
+  "2026-09-25": "中秋節",
+  "2026-09-28": "教師節",
+  "2026-10-09": "國慶日補假",
+  "2026-10-10": "國慶日",
+  "2026-10-25": "台灣光復節",
+  "2026-10-26": "台灣光復節補假",
+  "2026-12-25": "行憲紀念日",
+};
+function getHoliday(dateStr) { return TW_HOLIDAYS[dateStr] || null; }
+
 const PALETTE = [
   {name:"紅", hex:"#D9534F"}, {name:"藍", hex:"#3D6EA5"}, {name:"綠", hex:"#2F8F5B"},
   {name:"黃", hex:"#E0A82E"}, {name:"紫", hex:"#7B5CA5"}, {name:"橘", hex:"#C97A3D"},
@@ -316,6 +350,7 @@ function renderHome(){
             <div>🖐️ 在月曆上點日期（或時段）就是勾選你有空的時間，再點一次可以取消。</div>
             <div>🎨 每個人進房間會自動配一個顏色，不用自己選，方便在結果裡分辨是誰。</div>
             <div>🔥 日期顏色越深、代表越多人有空；上面會有「熱門日期」排行榜。</div>
+            <div>🎌 月曆上紅字標註的是台灣國定假日（含補假），方便看出是不是有連假。</div>
             <div>👑 建立房間的人是房主，可以鎖定投票、刪除房間、把某天設為最終定案。</div>
             <div>🙋 <b>下次要怎麼讓系統認得你？</b>只要用「同一台手機或同一個瀏覽器」打開同一個房間，系統就會自動記得你是誰，不用重新輸入暱稱。如果換了手機、換瀏覽器，或清除過瀏覽器資料，就會被當成新的人喔。</div>
             <div>⏳ 房間建立滿 30 天後會被自動清除。</div>
@@ -864,10 +899,12 @@ function renderRoom(){
     }).map(p => `<span class="dot" style="background:${p.color}"></span>`).join("");
 
     const isOpenDetail = meta.mode === "date_time" && state.selectedDetailDate === dateStr;
+    const holiday = getHoliday(dateStr);
 
     calCellsHtml += `
       <div class="cal-cell ${isDisabled?'disabled':''} ${isTodayCell?'today':''} ${faded?'faded':''}" data-date="${!isDisabled ? dateStr : ''}" style="background:${bg};${isOpenDetail?'box-shadow:inset 0 0 0 2px #E3A857;':''}">
-        <div class="cal-daynum">${day}</div>
+        <div class="cal-daynum" style="${holiday?'color:var(--danger);':''}">${day}</div>
+        ${holiday ? `<div class="holiday-tag">${holiday}</div>` : ``}
         <div class="dotwrap">${dotsHtml}</div>
       </div>
     `;
