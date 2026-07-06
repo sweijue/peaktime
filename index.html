@@ -272,6 +272,7 @@ const state = {
   confirmDeleteOpen: false,
   bestOnly: false,
   showAllResults: false,
+  showHelp: false,
   formTitle: "",
   formMode: "date",          // date | date_time
   formRestrictDates: false,
@@ -306,6 +307,20 @@ function renderHome(){
           <h1 class="display" style="font-size:36px;font-weight:700;margin:6px 0 4px;">敲時間</h1>
           <div style="color:var(--muted2);font-size:14px;">建立房間，讓大家在月曆上直接挑出有空的日子</div>
           <div style="color:var(--muted);font-size:12px;margin-top:4px;">大家的選擇會即時同步更新，不用重新整理頁面</div>
+          <div style="text-align:center;margin-top:8px;">
+            <button class="link-btn" id="toggle-help" style="font-size:16px;">使用說明 ${state.showHelp ? "▴" : "▾"}</button>
+          </div>
+          ${state.showHelp ? `
+          <div class="fade-in" style="text-align:left;font-size:16.5px;color:var(--muted2);line-height:1.9;margin-top:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;">
+            <div>📅 建立房間後會拿到一組房號，把房號或連結傳給大家，大家輸入暱稱就能加入。</div>
+            <div>🖐️ 在月曆上點日期（或時段）就是勾選你有空的時間，再點一次可以取消。</div>
+            <div>🎨 每個人進房間會自動配一個顏色，不用自己選，方便在結果裡分辨是誰。</div>
+            <div>🔥 日期顏色越深、代表越多人有空；上面會有「熱門日期」排行榜。</div>
+            <div>👑 建立房間的人是房主，可以鎖定投票、刪除房間、把某天設為最終定案。</div>
+            <div>🙋 <b>下次要怎麼讓系統認得你？</b>只要用「同一台手機或同一個瀏覽器」打開同一個房間，系統就會自動記得你是誰，不用重新輸入暱稱。如果換了手機、換瀏覽器，或清除過瀏覽器資料，就會被當成新的人喔。</div>
+            <div>⏳ 房間建立滿 30 天後會被自動清除。</div>
+          </div>
+          ` : ``}
         </div>
         <div class="glass" style="padding:20px;margin-bottom:14px;">
           <div style="font-weight:600;margin-bottom:10px;">建立新房間</div>
@@ -327,6 +342,8 @@ function renderHome(){
     </div>
   `;
   document.getElementById("go-create").onclick = () => { state.view="create"; render(); };
+  const toggleHelpBtn = document.getElementById("toggle-help");
+  if (toggleHelpBtn) toggleHelpBtn.onclick = () => { state.showHelp = !state.showHelp; render(); };
   const codeInput = document.getElementById("join-code");
   const doJoin = () => handleJoinRoom(codeInput.value);
   document.getElementById("join-btn").onclick = doJoin;
@@ -633,6 +650,21 @@ async function toggleSegment(dateStr, slotKey){
   if (!Object.values(cur).some(Boolean)) delete picks[dateStr]; else picks[dateStr] = cur;
   await ref(`rooms/${state.roomCode}/participants/${myUid}/picks`).set(picks);
 }
+async function selectAllSlotsForDate(dateStr){
+  const me = myParticipant(); if (!me || state.room.meta.locked) return;
+  const meta = state.room.meta;
+  const hours = Array.from({ length: Math.max(1, (meta.endHour ?? 22) - (meta.startHour ?? 9)) }, (_, i) => (meta.startHour ?? 9) + i);
+  const cur = {};
+  hours.forEach(h => { cur[`${h}:00`] = true; cur[`${h}:30`] = true; });
+  const picks = { ...(me.picks||{}), [dateStr]: cur };
+  await ref(`rooms/${state.roomCode}/participants/${myUid}/picks`).set(picks);
+}
+async function clearAllSlotsForDate(dateStr){
+  const me = myParticipant(); if (!me || state.room.meta.locked) return;
+  const picks = { ...(me.picks||{}) };
+  delete picks[dateStr];
+  await ref(`rooms/${state.roomCode}/participants/${myUid}/picks`).set(picks);
+}
 async function clearMyPicks(){
   const me = myParticipant(); if (!me) return;
   await ref(`rooms/${state.roomCode}/participants/${myUid}/picks`).set({});
@@ -746,7 +778,7 @@ function renderRoom(){
   const legendHtml = participants.length ? `
     <div class="legend">
       ${participants.map(p=>`
-        <span class="legend-chip">
+        <span class="legend-chip" style="font-size:16.5px;">
           <span class="dot" style="background:${p.color}"></span>${esc(p.name)}${p.uid===meta.hostUid?' 👑':''}
           ${p.note ? `<span style="color:var(--muted2);font-style:italic;">・${esc(p.note)}</span>` : ``}
         </span>
@@ -847,7 +879,13 @@ function renderRoom(){
     const { md, wd } = fmtDate(d);
     dayDetailHtml = `
       <div class="glass fade-in" style="padding:14px;margin-top:12px;">
-        <div style="font-size:13px;font-weight:600;margin-bottom:8px;">${md} 週${wd} · 點選時段（可點半小時）</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+          <div style="font-size:13px;font-weight:600;">${md} 週${wd} · 點選時段（可點半小時）</div>
+          <div style="display:flex;gap:6px;">
+            <button class="link-btn" id="select-all-slots" style="font-size:11.5px;color:var(--teal);">全選</button>
+            <button class="link-btn" id="clear-all-slots" style="font-size:11.5px;color:var(--danger);">全清除</button>
+          </div>
+        </div>
         <div class="hourlist">
           ${hourRange.map((h) => {
             const slotKey0 = `${h}:00`, slotKey30 = `${h}:30`;
@@ -923,7 +961,7 @@ function renderRoom(){
       `}
 
       <div class="glass" style="padding:16px 14px;margin-bottom:14px;">
-        <div style="font-size:12.5px;font-weight:600;color:var(--muted2);margin-bottom:6px;">參與者</div>
+        <div style="font-size:16.5px;font-weight:600;color:var(--muted2);margin-bottom:6px;">參與者</div>
         ${legendHtml}
       </div>
 
@@ -1013,6 +1051,10 @@ function renderRoom(){
   if (bestToggle) bestToggle.onclick = () => { state.bestOnly = !state.bestOnly; render(); };
   const toggleAllResults = document.getElementById("toggle-all-results");
   if (toggleAllResults) toggleAllResults.onclick = () => { state.showAllResults = !state.showAllResults; render(); };
+  const selectAllBtn = document.getElementById("select-all-slots");
+  if (selectAllBtn) selectAllBtn.onclick = () => selectAllSlotsForDate(state.selectedDetailDate);
+  const clearAllBtn = document.getElementById("clear-all-slots");
+  if (clearAllBtn) clearAllBtn.onclick = () => clearAllSlotsForDate(state.selectedDetailDate);
   document.getElementById("cal-prev").onclick = () => shiftMonth(-1);
   document.getElementById("cal-next").onclick = () => shiftMonth(1);
   document.querySelectorAll("[data-jump]").forEach(el => el.onclick = () => jumpToDate(el.dataset.jump));
