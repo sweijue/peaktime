@@ -219,16 +219,83 @@ function genCode(len=6){ let s=""; for(let i=0;i<len;i++) s+=CODE_CHARS[Math.flo
 const WEEKDAY = ["日","一","二","三","四","五","六"];
 
 /* ============================================================
-   台灣國定假日資料 — 即時抓取，不是寫死在程式碼裡。
-   資料來源：ruyut/TaiwanCalendar（GitHub 上的開源社群專案，根據
-   行政院人事行政總處公告的官方辦公日曆表整理），透過 jsDelivr
-   這個公開 CDN 提供，瀏覽器可以直接讀取。只要那個專案更新了新
-   年度的資料，這裡下次抓取就會自動拿到最新的，不用手動修改。
+   台灣國定假日資料 — 內建保底資料 + 即時抓取增強的雙保險做法。
 
-   注意：這份資料是社群整理、可能有誤差或更新延遲，不是政府官方
-   即時發布的 API。如果對某個日期有疑慮，請以官方公告為準（首頁
-   使用說明裡有附官方行事曆連結）。
+   FALLBACK_HOLIDAYS 是根據行政院人事行政總處公告的官方辦公日曆表
+   整理的簡稱版本，直接寫在程式碼裡，不管網路狀況如何都保證會顯示。
+   同時仍會嘗試向 ruyut/TaiwanCalendar（GitHub 社群專案，透過
+   jsDelivr CDN 提供）即時抓取資料來補足或更新，抓取成功就用抓到的
+   （並自動轉成簡稱），失敗的話就靜靜地繼續用內建保底資料，不影響
+   使用。
+
+   之後政府公告新年度（例如118年/2029年）行事曆時，可以在
+   FALLBACK_HOLIDAYS 裡比照格式新增當年日期即可。
 ============================================================ */
+const FALLBACK_HOLIDAYS = {
+  // 2026（民國115年）
+  "2026-01-01": "元旦",
+  "2026-02-15": "小年夜",
+  "2026-02-16": "除夕",
+  "2026-02-17": "初一",
+  "2026-02-18": "初二",
+  "2026-02-19": "初三",
+  "2026-02-20": "春節補假",
+  "2026-02-27": "和平補假",
+  "2026-02-28": "和平紀念日",
+  "2026-04-03": "兒童節補假",
+  "2026-04-04": "兒童節",
+  "2026-04-05": "清明節",
+  "2026-04-06": "清明補假",
+  "2026-05-01": "勞動節",
+  "2026-06-19": "端午節",
+  "2026-09-25": "中秋節",
+  "2026-09-28": "教師節",
+  "2026-10-09": "國慶補假",
+  "2026-10-10": "國慶日",
+  "2026-10-25": "光復節",
+  "2026-10-26": "光復補假",
+  "2026-12-25": "行憲紀念日",
+  // 2027（民國116年）
+  "2027-01-01": "元旦",
+  "2027-02-04": "小年夜",
+  "2027-02-05": "除夕",
+  "2027-02-06": "初一",
+  "2027-02-07": "初二",
+  "2027-02-09": "春節補假",
+  "2027-02-10": "春節補假",
+  "2027-02-28": "和平紀念日",
+  "2027-03-01": "和平補假",
+  "2027-04-04": "兒童節",
+  "2027-04-05": "清明節",
+  "2027-04-06": "兒童補假",
+  "2027-04-30": "勞動補假",
+  "2027-05-01": "勞動節",
+  "2027-06-09": "端午節",
+  "2027-09-15": "中秋節",
+  "2027-09-28": "教師節",
+  "2027-10-10": "國慶日",
+  "2027-10-11": "國慶補假",
+  "2027-10-25": "光復節",
+  "2027-12-24": "行憲補假",
+  "2027-12-25": "行憲紀念日",
+  "2027-12-31": "元旦補假",
+};
+
+// 把常見的落落長官方全名縮成短稱，避免小格子裡塞不下
+const HOLIDAY_NAME_SHORTEN = [
+  [/臺灣光復.*/, "光復節"],
+  [/台灣光復.*/, "光復節"],
+  [/中華民國開國紀念日/, "元旦"],
+  [/和平紀念日.*/, "和平紀念日"],
+  [/軍人節.*/, "軍人節"],
+];
+function shortenHolidayName(name) {
+  for (const [pattern, short] of HOLIDAY_NAME_SHORTEN) {
+    if (pattern.test(name)) return short;
+  }
+  return name.length > 5 ? name.slice(0, 5) : name;
+}
+
 const TW_HOLIDAY_CACHE = {};      // year(string) -> {dateStr: {name, isHoliday}} | null(抓取失敗)
 const TW_HOLIDAY_FETCHING = new Set();
 
@@ -243,23 +310,25 @@ function ensureHolidayYearLoaded(year) {
         if (item.description) {
           const d = item.date; // "YYYYMMDD"
           const iso = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
-          map[iso] = { name: item.description, isHoliday: !!item.isHoliday };
+          map[iso] = { name: shortenHolidayName(item.description), isHoliday: !!item.isHoliday };
         }
       });
       TW_HOLIDAY_CACHE[year] = map;
       TW_HOLIDAY_FETCHING.delete(year);
-      if (state.view === "room") render(); // 資料抓到後刷新一次月曆
+      if (state.view === "room") render(); // 抓到更新資料後刷新一次月曆
     })
     .catch(() => {
-      TW_HOLIDAY_CACHE[year] = null; // 標記抓取失敗，避免一直重試
+      TW_HOLIDAY_CACHE[year] = null; // 抓取失敗，改用內建保底資料，不再重試
       TW_HOLIDAY_FETCHING.delete(year);
     });
 }
 function getHoliday(dateStr) {
   const year = dateStr.slice(0,4);
   ensureHolidayYearLoaded(year);
-  const map = TW_HOLIDAY_CACHE[year];
-  return map ? (map[dateStr] || null) : null;
+  const fetched = TW_HOLIDAY_CACHE[year];
+  if (fetched && fetched[dateStr]) return fetched[dateStr];
+  if (FALLBACK_HOLIDAYS[dateStr]) return { name: FALLBACK_HOLIDAYS[dateStr], isHoliday: true };
+  return null;
 }
 
 
