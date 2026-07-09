@@ -846,9 +846,16 @@ async function unfinalize(){
   await ref(`rooms/${state.roomCode}/meta`).update({ finalizedDate: null, finalizedSlot: null });
   showToast("已取消定案");
 }
+function dismissKeyboard(){
+  if (document.activeElement && typeof document.activeElement.blur === "function") {
+    document.activeElement.blur();
+  }
+  setTimeout(() => window.scrollTo(0, 0), 50);
+}
 function requestLeaveRoom(){
   const noOneJoined = state.room && (!state.room.participants || Object.keys(state.room.participants).length === 0);
   if (noOneJoined) {
+    dismissKeyboard();
     state.confirmLeaveEmptyOpen = true;
     render();
   } else {
@@ -870,6 +877,7 @@ async function doLeaveRoom(shouldDelete){
   }
 }
 function requestDeleteRoom(){
+  dismissKeyboard();
   state.confirmDeleteOpen = true;
   render();
 }
@@ -1274,7 +1282,9 @@ function renderRoom(){
     nameInput.oninput = (e) => state.nameDraft = e.target.value;
     nameInput.onkeydown = (e) => { if (e.key==="Enter") submitName(); };
     document.getElementById("submit-name").onclick = submitName;
-    nameInput.focus();
+    if (!state.confirmLeaveEmptyOpen && !state.confirmDeleteOpen) {
+      nameInput.focus();
+    }
     return;
   }
 
