@@ -386,6 +386,10 @@ const state = {
   calMonth: today.getMonth(),
   selectedDetailDate: null,  // which date's time-of-day picker is open (date_time mode)
   confirmDeleteOpen: false,
+  editingTitle: false,
+  titleDraft: "",
+  editingRules: false,
+  rulesDraft: "",
   bestOnly: false,
   showAllResults: false,
   showHelp: false,
@@ -610,6 +614,8 @@ function enterRoom(code, justCreated, knownTitle){
   state.showAllResults = false;
   state.selectedDetailDate = null;
   state.confirmDeleteOpen = false;
+  state.editingTitle = false;
+  state.editingRules = false;
   state.view = "room";
   render();
 
@@ -795,6 +801,38 @@ async function saveNote(){
 async function toggleLock(){
   await ref(`rooms/${state.roomCode}/meta/locked`).set(!state.room.meta.locked);
 }
+function startEditTitle(){
+  state.titleDraft = state.room.meta.title;
+  state.editingTitle = true;
+  render();
+}
+function cancelEditTitle(){
+  state.editingTitle = false;
+  render();
+}
+async function saveTitle(){
+  const newTitle = state.titleDraft.trim();
+  if (!newTitle) return;
+  await ref(`rooms/${state.roomCode}/meta/title`).set(newTitle.slice(0,30));
+  state.editingTitle = false;
+  render();
+  showToast("房名已更新");
+}
+function startEditRules(){
+  state.rulesDraft = state.room.meta.rules || "";
+  state.editingRules = true;
+  render();
+}
+function cancelEditRules(){
+  state.editingRules = false;
+  render();
+}
+async function saveRules(){
+  await ref(`rooms/${state.roomCode}/meta/rules`).set(state.rulesDraft.trim().slice(0,100));
+  state.editingRules = false;
+  render();
+  showToast("房規已更新");
+}
 async function finalizeDate(dateStr, slotKey){
   await ref(`rooms/${state.roomCode}/meta`).update({
     finalizedDate: dateStr,
@@ -805,6 +843,16 @@ async function finalizeDate(dateStr, slotKey){
 async function unfinalize(){
   await ref(`rooms/${state.roomCode}/meta`).update({ finalizedDate: null, finalizedSlot: null });
   showToast("已取消定案");
+}
+async function leaveRoom(){
+  const noOneJoined = state.room && (!state.room.participants || Object.keys(state.room.participants).length === 0);
+  const code = state.roomCode;
+  if (roomRef) roomRef.off("value");
+  state.view = "home";
+  render();
+  if (noOneJoined && code) {
+    try { await ref(`rooms/${code}`).remove(); } catch (e) { /* best effort */ }
+  }
 }
 function requestDeleteRoom(){
   state.confirmDeleteOpen = true;
@@ -1042,7 +1090,16 @@ function renderRoom(){
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
           <div style="min-width:0;">
             <button class="link-btn" id="leave-room" style="margin-bottom:4px;">← 離開房間</button>
-            <h1 class="display" style="font-size:19px;font-weight:700;margin:0;">${esc(meta.title)}</h1>
+            ${state.editingTitle ? `
+            <div class="row" style="align-items:center;">
+              <input class="input" id="title-edit-input" value="${esc(state.titleDraft)}" maxlength="30" style="font-size:16px;padding:6px 10px;" />
+              <button class="btn btn-teal btn-sm" id="save-title-btn">儲存</button>
+              <button class="btn btn-outline btn-sm" id="cancel-title-btn">取消</button>
+            </div>
+            ` : `
+            <h1 class="display" style="font-size:19px;font-weight:700;margin:0;display:inline;">${esc(meta.title)}</h1>
+            ${isHost ? `<button class="link-btn" id="edit-title-btn" style="font-size:12px;margin-left:6px;color:var(--teal);">✏️ 改房名</button>` : ``}
+            `}
             <div style="font-size:11.5px;color:var(--muted);margin-top:3px;">剩餘 ${remaining} 天 · ${total} 人 · 房主：${esc(hostName)} ${meta.locked?'· <b style="color:var(--danger);">已鎖定</b>':''}</div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;">
@@ -1059,9 +1116,20 @@ function renderRoom(){
         </div>` : ``}
       </div>
 
-      ${meta.rules ? `
+      ${(meta.rules || isHost) ? `
       <div class="glass" style="padding:12px 16px;margin-bottom:12px;background:rgba(227,168,87,0.12);">
-        <div style="font-size:12px;color:#7A5A1E;">📌 ${esc(meta.rules)}</div>
+        ${state.editingRules ? `
+          <textarea class="input" id="rules-edit-input" rows="2" maxlength="100" style="margin-bottom:6px;">${esc(state.rulesDraft)}</textarea>
+          <div class="row">
+            <button class="btn btn-teal btn-sm" id="save-rules-btn">儲存</button>
+            <button class="btn btn-outline btn-sm" id="cancel-rules-btn">取消</button>
+          </div>
+        ` : `
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+            <div style="font-size:12px;color:#7A5A1E;">${meta.rules ? `📌 ${esc(meta.rules)}` : `<span style="color:var(--muted);">尚未設定房間規則</span>`}</div>
+            ${isHost ? `<button class="link-btn" id="edit-rules-btn" style="font-size:11px;color:var(--teal);white-space:nowrap;">${meta.rules?"編輯":"＋新增"}</button>` : ``}
+          </div>
+        `}
       </div>` : ``}
 
       ${meta.finalizedDate ? (() => {
@@ -1144,9 +1212,22 @@ function renderRoom(){
     ` : ``}
   `;
 
-  document.getElementById("leave-room").onclick = () => { if(roomRef) roomRef.off("value"); state.view="home"; render(); };
+  document.getElementById("leave-room").onclick = leaveRoom;
   document.getElementById("share-ticket").onclick = copyShareUrl;
   const lockBtn = document.getElementById("lock-btn"); if (lockBtn) lockBtn.onclick = toggleLock;
+  const editTitleBtn = document.getElementById("edit-title-btn"); if (editTitleBtn) editTitleBtn.onclick = startEditTitle;
+  const saveTitleBtn = document.getElementById("save-title-btn"); if (saveTitleBtn) saveTitleBtn.onclick = saveTitle;
+  const cancelTitleBtn = document.getElementById("cancel-title-btn"); if (cancelTitleBtn) cancelTitleBtn.onclick = cancelEditTitle;
+  const titleEditInput = document.getElementById("title-edit-input");
+  if (titleEditInput) {
+    titleEditInput.oninput = (e) => state.titleDraft = e.target.value;
+    titleEditInput.onkeydown = (e) => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") cancelEditTitle(); };
+  }
+  const editRulesBtn = document.getElementById("edit-rules-btn"); if (editRulesBtn) editRulesBtn.onclick = startEditRules;
+  const saveRulesBtn = document.getElementById("save-rules-btn"); if (saveRulesBtn) saveRulesBtn.onclick = saveRules;
+  const cancelRulesBtn = document.getElementById("cancel-rules-btn"); if (cancelRulesBtn) cancelRulesBtn.onclick = cancelEditRules;
+  const rulesEditInput = document.getElementById("rules-edit-input");
+  if (rulesEditInput) rulesEditInput.oninput = (e) => state.rulesDraft = e.target.value;
   const delBtn = document.getElementById("delete-btn"); if (delBtn) delBtn.onclick = requestDeleteRoom;
   const cancelDeleteBtn = document.getElementById("cancel-delete-btn"); if (cancelDeleteBtn) cancelDeleteBtn.onclick = cancelDeleteRoom;
   const confirmDeleteBtn = document.getElementById("confirm-delete-btn"); if (confirmDeleteBtn) confirmDeleteBtn.onclick = confirmDeleteRoom;
